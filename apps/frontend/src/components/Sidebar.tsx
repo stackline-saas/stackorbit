@@ -67,8 +67,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const currentProjectHostsCount = selectedProjectId
+    ? hosts.filter((h) => h.projectId === selectedProjectId).length
+    : 0;
+
   // 1. Itens Escopados ao Projeto Selecionado
   const projectNavigationItems = [
+    {
+      id: 'hosts' as ActiveTab,
+      path: '/hosts',
+      label: 'Servidores & Nós',
+      icon: HardDrive,
+      count: currentProjectHostsCount,
+    },
     {
       id: 'services' as ActiveTab,
       path: '/services',
@@ -125,7 +136,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const globalNavigationItems = [
     { id: 'dashboard' as ActiveTab, path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'projects' as ActiveTab, path: '/projects', label: 'Projetos', icon: FolderGit2, count: projects.length },
-    { id: 'hosts' as ActiveTab, path: '/hosts', label: 'Servidores & Nós', icon: HardDrive, count: hosts.length },
     { id: 'audit' as ActiveTab, path: '/audit', label: 'Auditoria & Logs', icon: FileText },
     { id: 'tests' as ActiveTab, path: '/tests', label: 'Testes do Sistema', icon: CheckSquare },
   ];

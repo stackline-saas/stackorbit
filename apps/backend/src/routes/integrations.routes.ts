@@ -480,24 +480,29 @@ integrationsRouter.get('/github/repos/:owner/:repo/inspect', async (req, res) =>
       }
 
       // 3. Search for .env files
-      const envCandidates = files
+      envCandidates = files
         .filter((f) => {
-          const base = f.includes('/') ? f.split('/').pop()! : f;
+          const lower = f.toLowerCase();
+          const base = f.includes('/') ? f.split('/').pop()!.toLowerCase() : lower;
           return (
             base.startsWith('.env') ||
+            base.endsWith('.env') ||
             base === 'env.example' ||
             base === 'env.sample' ||
             base === 'env.production' ||
-            base === 'env.local'
+            base === 'env.local' ||
+            base.includes('.env.')
           );
         })
         .sort((a, b) => {
           const priority = (name: string) => {
-            if (name.includes('example')) return 1;
-            if (name.includes('sample')) return 2;
-            if (name.includes('prod')) return 3;
-            if (name === '.env') return 4;
-            return 5;
+            const lower = name.toLowerCase();
+            if (lower.includes('example')) return 1;
+            if (lower.includes('sample')) return 2;
+            if (lower.includes('prod')) return 3;
+            if (lower.includes('default')) return 4;
+            if (lower === '.env') return 5;
+            return 6;
           };
           return priority(a) - priority(b);
         });

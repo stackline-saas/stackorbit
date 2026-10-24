@@ -1250,34 +1250,61 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
                         </div>
 
                         {/* Import Chips from Repository */}
-                        {inspectionResult?.envCandidates && inspectionResult.envCandidates.length > 0 && (
-                          <div className="p-2.5 bg-blue-50/70 rounded-lg border border-blue-200/80 space-y-1.5">
-                            <div className="flex items-center justify-between text-[11px]">
+                        {selectedRepo && (
+                          <div className="p-3 bg-blue-50/70 rounded-lg border border-blue-200/80 space-y-2">
+                            <div className="flex items-center justify-between text-xs">
                               <span className="font-bold text-blue-900 flex items-center gap-1.5">
                                 <Download className="w-3.5 h-3.5 text-blue-600" />
-                                <span>Arquivos .env encontrados no repositório:</span>
+                                <span>Importar .env do repositório:</span>
                               </span>
-                              <span className="text-slate-500 text-[10px]">Clique para preencher automaticamente</span>
+                              {isInspecting ? (
+                                <span className="text-[11px] text-blue-600 flex items-center gap-1 font-mono">
+                                  <RefreshCw className="w-3 h-3 animate-spin" /> Verificando arquivos...
+                                </span>
+                              ) : (
+                                <span className="text-slate-500 text-[10px]">
+                                  {inspectionResult?.envCandidates && inspectionResult.envCandidates.length > 0
+                                    ? 'Clique para preencher automaticamente'
+                                    : ''}
+                                </span>
+                              )}
                             </div>
 
-                            <div className="flex items-center gap-2 flex-wrap">
-                              {inspectionResult.envCandidates.map((file) => (
+                            {inspectionResult?.envCandidates && inspectionResult.envCandidates.length > 0 ? (
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {inspectionResult.envCandidates.map((file) => (
+                                  <button
+                                    key={file}
+                                    type="button"
+                                    disabled={isImportingEnv === file}
+                                    onClick={() => handleImportEnvFile(file)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-white hover:bg-blue-600 hover:text-white text-slate-800 rounded-md border border-slate-300 hover:border-blue-600 font-semibold shadow-2xs transition-all disabled:opacity-50"
+                                    title={`Carregar variáveis de ${file}`}
+                                  >
+                                    {isImportingEnv === file ? (
+                                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                                    ) : (
+                                      <FileText className="w-3.5 h-3.5 text-blue-500" />
+                                    )}
+                                    <span>{file}</span>
+                                    <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-1 py-0.2 rounded border border-blue-200">
+                                      Importar
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-[11px] text-slate-500 flex items-center justify-between">
+                                <span>Nenhum arquivo .env (ex: .env.example, .env.prod) foi localizado na raiz deste repositório.</span>
                                 <button
-                                  key={file}
                                   type="button"
-                                  disabled={isImportingEnv === file}
-                                  onClick={() => handleImportEnvFile(file)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-mono bg-white hover:bg-blue-600 hover:text-white text-slate-700 rounded-md border border-slate-300 hover:border-blue-600 font-semibold shadow-2xs transition-all disabled:opacity-50"
+                                  onClick={() => runInspection(selectedRepo.owner, selectedRepo.name, selectedBranch)}
+                                  className="text-blue-600 hover:underline font-semibold flex items-center gap-1"
                                 >
-                                  {isImportingEnv === file ? (
-                                    <RefreshCw className="w-3 h-3 animate-spin text-blue-600" />
-                                  ) : (
-                                    <FileText className="w-3 h-3 text-blue-500" />
-                                  )}
-                                  <span>{file}</span>
+                                  <RefreshCw className="w-3 h-3" /> Reinspecionar
                                 </button>
-                              ))}
-                            </div>
+                              </div>
+                            )}
                           </div>
                         )}
 

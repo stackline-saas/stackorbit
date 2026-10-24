@@ -1,0 +1,136 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  OPERATOR
+}
+
+enum ServiceStatus {
+  RUNNING
+  STOPPED
+  RESTARTING
+  ERROR
+}
+
+enum SSLStatus {
+  CLOUDFLARE_PROXIED
+  ORIGIN_READY
+  PENDING
+}
+
+enum ProxyStatus {
+  APPLIED
+  GENERATED
+  FAILED
+}
+
+enum EntityType {
+  SERVICE
+  DOMAIN
+  PROXY
+  CONTAINER
+  SETTINGS
+  AUTH
+}
+
+model User {
+  id           String        @id @default(cuid())
+  name         String
+  email        String        @unique
+  passwordHash String
+  role         Role          @default(ADMIN)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  auditLogs    AuditLog[]
+  proxyConfigs ProxyConfiguration[]
+
+  @@map("users")
+}
+
+model Service {
+  id            String         @id @default(cuid())
+  name          String
+  containerName String         @unique
+  containerId   String?
+  image         String
+  internalPort  Int
+  status        ServiceStatus  @default(RUNNING)
+  isActive      Boolean        @default(true)
+  isDefault     Boolean        @default(false)
+  notes         String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  domains       Domain[]
+
+  @@index([isActive])
+  @@index([isDefault])
+  @@map("services")
+}
+
+model Domain {
+  id         String    @id @default(cuid())
+  domainName String    @unique
+  serviceId  String
+  service    Service   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  isActive   Boolean   @default(true)
+  sslStatus  SSLStatus @default(CLOUDFLARE_PROXIED)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([serviceId])
+  @@index([isActive])
+  @@map("domains")
+}
+
+model ProxyConfiguration {
+  id           String      @id @default(cuid())
+  version      Int         @unique
+  contentYaml  String      @db.Text
+  appliedAt    DateTime    @default(now())
+  appliedBy    String
+  user         User?       @relation(fields: [appliedBy], references: [id], onDelete: SetNull)
+  status       ProxyStatus @default(APPLIED)
+  errorMessage String?
+
+  @@index([appliedAt])
+  @@map("proxy_configurations")
+}
+
+model AuditLog {
+  id         String     @id @default(cuid())
+  userId     String?
+  user       User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userName   String
+  action     String
+  entityType EntityType
+  entityId   String?
+  details    String     @db.Text
+  ipAddress  String?
+  createdAt  DateTime   @default(now())
+
+  @@index([createdAt])
+  @@index([entityType])
+  @@map("audit_logs")
+}
+
+model AppSettings {
+  id                       String   @id @default("default")
+  mainDomain               String   @default("bla.com.br")
+  originServerIp           String   @default("127.0.0.1")
+  originHttpsPort          Int      @default(443)
+  cloudflareSslMode        String   @default("Full (strict)")
+  dockerSocketPath         String   @default("/var/run/docker.sock")
+  traefikDynamicConfigPath String   @default("/etc/traefik/dynamic/dynamic_conf.yml")
+  autoApplyTraefik         Boolean  @default(true)
+  defaultFallbackEnabled   Boolean  @default(true)
+  updatedAt                DateTime @updatedAt
+
+  @@map("app_settings")
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Docker Domain Manager (Traefik + Cloudflare)",
+  "description": "Painel administrativo para gerenciar serviços Docker, roteamento automático por domínio via Traefik e integração com Cloudflare SSL.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

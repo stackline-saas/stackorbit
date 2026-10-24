@@ -1,0 +1,98 @@
+# ===================================================================
+# TRAEFIK DYNAMIC CONFIGURATION - DOCKER DOMAIN MANAGER
+# Gerado automaticamente pelo Painel Administrativo
+# Data de geração: 2026-10-21T20:21:16.097Z
+# Modo SSL: Cloudflare Full (strict) via Origin CA Certificate
+# ===================================================================
+http:
+  routers:
+    router-api-bla-com-br:
+      rule: Host(`api.bla.com.br`)
+      entryPoints:
+        - websecure
+        - web
+      service: service-api-node-backend-principal
+      priority: 100
+      middlewares:
+        - cloudflare-realip
+      tls: {}
+    router-admin-bla-com-br:
+      rule: Host(`admin.bla.com.br`)
+      entryPoints:
+        - websecure
+        - web
+      service: service-painel-admin
+      priority: 100
+      middlewares:
+        - cloudflare-realip
+      tls: {}
+    router-default-fallback:
+      rule: HostRegexp(`{host:.+}`)
+      entryPoints:
+        - websecure
+        - web
+      service: service-portal-geral--padr-o-
+      priority: 1
+      middlewares:
+        - cloudflare-realip
+      tls: {}
+  services:
+    service-api-node-backend-principal:
+      loadBalancer:
+        servers:
+          - url: http://api:8080
+        passHostHeader: true
+        responseForwarding:
+          flushInterval: 100ms
+    service-painel-admin:
+      loadBalancer:
+        servers:
+          - url: http://admin:80
+        passHostHeader: true
+        responseForwarding:
+          flushInterval: 100ms
+    service-portal-geral--padr-o-:
+      loadBalancer:
+        servers:
+          - url: http://web-portal:80
+        passHostHeader: true
+        responseForwarding:
+          flushInterval: 100ms
+    service-node-app-git:
+      loadBalancer:
+        servers:
+          - url: http://node-git-app:3000
+        passHostHeader: true
+        responseForwarding:
+          flushInterval: 100ms
+    service-redis-cache:
+      loadBalancer:
+        servers:
+          - url: http://redis-app:6379
+        passHostHeader: true
+        responseForwarding:
+          flushInterval: 100ms
+  middlewares:
+    cloudflare-realip:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Proto: https
+        sslProxyHeaders:
+          X-Forwarded-Proto: https
+tls:
+  certificates:
+    - certFile: /etc/traefik/certs/origin.pem
+      keyFile: /etc/traefik/certs/origin.key
+      stores:
+        - default
+  options:
+    default:
+      minVersion: VersionTLS12
+      cipherSuites:
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305
+      sniStrict: false

@@ -1,0 +1,106 @@
+services:
+  # ============================================================================
+  # 1. APLICAÇÃO WEB - PAINEL ADMINISTRATIVO DOCKER DOMAIN MANAGER
+  # ============================================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: domain-manager-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://postgres:postgrespassword@postgres:5432/domainmanager?schema=public
+      - DOCKER_SOCKET_PATH=/var/run/docker.sock
+      - TRAEFIK_DYNAMIC_CONFIG_PATH=/etc/traefik/dynamic/dynamic_conf.yml
+    volumes:
+      # Socket do Docker montado estritamente como LEITURA (:ro) para proteção contra comandos destrutivos
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Volume compartilhado com o Traefik para geração automática de regras dinâmicas
+      - traefik-dynamic:/etc/traefik/dynamic
+      - ./traefik/certs:/etc/traefik/certs:ro
+    networks:
+      - proxy-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ============================================================================
+  # 2. BANCO DE DADOS - POSTGRESQL 16
+  # ============================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: domain-manager-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: domainmanager
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - proxy-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d domainmanager"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================================
+  # 3. PROXY REVERSO - TRAEFIK V3 (COM INTEGRAÇÃO CLOUDFLARE FULL STRICT)
+  # ============================================================================
+  traefik:
+    image: traefik:v3.1
+    container_name: domain-manager-traefik
+    restart: unless-stopped
+    command:
+      - "--configFile=/etc/traefik/traefik.yml"
+    ports:
+      # Portas públicas de roteamento pelo Cloudflare
+      - "80:80"
+      - "443:443"
+      # Dashboard opcional do Traefik (recomenda-se manter fechado em produção)
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - traefik-dynamic:/etc/traefik/dynamic
+      - ./traefik/certs:/etc/traefik/certs:ro
+    networks:
+      - proxy-net
+
+  # ============================================================================
+  # CONTAINERS DE EXEMPLO PARA TESTE DE ROTEAMENTO
+  # ============================================================================
+  api:
+    image: node:20-alpine
+    container_name: api
+    restart: unless-stopped
+    command: sh -c "echo 'const http=require(\"http\");http.createServer((req,res)=>{res.writeHead(200,{\"Content-Type\":\"application/json\"});res.end(JSON.stringify({service:\"api\",host:req.headers.host,time:new Date()}));}).listen(8080);' > server.js && node server.js"
+    networks:
+      - proxy-net
+
+  admin:
+    image: nginx:alpine
+    container_name: admin
+    restart: unless-stopped
+    networks:
+      - proxy-net
+
+  web-portal:
+    image: nginx:alpine
+    container_name: web-portal
+    restart: unless-stopped
+    networks:
+      - proxy-net
+
+networks:
+  proxy-net:
+    name: proxy-net
+    driver: bridge
+
+volumes:
+  postgres-data:
+  traefik-dynamic:

@@ -1,0 +1,867 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Routes,
+  Route,
+  Navigate,
+  useNavigate,
+  useLocation,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
+import { Server, ArrowLeft } from 'lucide-react';
+import { AuthProvider, useAuth } from './context/AuthContext.tsx';
+import { NotificationProvider, useNotification } from './context/NotificationContext.tsx';
+import { Sidebar, type ActiveTab } from './components/Sidebar.tsx';
+import { Header } from './components/Header.tsx';
+import { LoginView } from './components/LoginView.tsx';
+import { DashboardView } from './components/views/DashboardView.tsx';
+import { ServicesView } from './components/views/ServicesView.tsx';
+import { DomainsView } from './components/views/DomainsView.tsx';
+import { DefaultServiceView } from './components/views/DefaultServiceView.tsx';
+import { ContainersView } from './components/views/ContainersView.tsx';
+import { TraefikView } from './components/views/TraefikView.tsx';
+import { CloudflareView } from './components/views/CloudflareView.tsx';
+import { AuditLogsView } from './components/views/AuditLogsView.tsx';
+import { TestSuiteView } from './components/views/TestSuiteView.tsx';
+import { SettingsView } from './components/views/SettingsView.tsx';
+import { ServiceDetailView } from './components/views/ServiceDetailView.tsx';
+import {
+  ServiceModal,
+  DomainModal,
+  LogsModal,
+  ConfirmModal,
+  BuildLogsModal,
+} from './components/Modals.tsx';
+import { TemplateDeployModal } from './components/TemplateDeployModal.tsx';
+import { ImportComposeModal } from './components/ImportComposeModal.tsx';
+import type { DashboardStats, Service, Domain } from './types/index.ts';
+
+// Route wrapper for /services/:id with dynamic deep-linking
+interface ServiceDetailRouteWrapperProps {
+  services: Service[];
+  domains: Domain[];
+  onSaveServiceDetail: (id: string, updates: Partial<Service>) => Promise<boolean>;
+  onDeleteService: (service: Service) => void;
+  onStartContainer: (service: Service) => void;
+  onStopContainer: (service: Service) => void;
+  onRestartContainer: (service: Service) => void;
+  onOpenLogs: (containerName: string) => void;
+  onTriggerRebuild: (id: string) => void;
+  loadData: () => void;
+  mainDomain: string;
+  isRefreshing: boolean;
+}
+
+const ServiceDetailRouteWrapper: React.FC<ServiceDetailRouteWrapperProps> = ({
+  services,
+  domains,
+  onSaveServiceDetail,
+  onDeleteService,
+  onStartContainer,
+  onStopContainer,
+  onRestartContainer,
+  onOpenLogs,
+  onTriggerRebuild,
+  loadData,
+  mainDomain,
+  isRefreshing,
+}) => {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const tabFromQuery = searchParams.get('tab') as any;
+
+  const service = services.find((s) => s.id === id);
+
+  if (!service) {
+    if (isRefreshing && services.length === 0) {
+      return (
+        <div className="p-12 text-center bg-white rounded-xl border border-slate-200 shadow-xs">
+          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-xs text-slate-500 font-medium">Carregando detalhes do serviço...</p>
+        </div>
+      );
+    }
+    return (
+      <div className="p-12 text-center bg-white rounded-xl border border-slate-200 max-w-lg mx-auto shadow-xs">
+        <Server className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+        <h3 className="text-base font-bold text-slate-800">Serviço não encontrado</h3>
+        <p className="text-xs text-slate-500 mt-1 mb-6">
+          O serviço com ID <code className="font-mono bg-slate-100 px-1 py-0.5 rounded text-slate-700">{id}</code> não foi localizado ou foi removido.
+        </p>
+        <button
+          onClick={() => navigate('/services')}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 shadow-xs transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Voltar para Lista de Serviços</span>
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <ServiceDetailView
+      service={service}
+      allServices={services}
+      domains={domains}
+      initialTab={tabFromQuery || 'env'}
+      onBack={() => navigate('/services')}
+      onUpdateService={onSaveServiceDetail}
+      onDeleteService={onDeleteService}
+      onStartContainer={onStartContainer}
+      onStopContainer={onStopContainer}
+      onRestartContainer={onRestartContainer}
+      onViewLogs={onOpenLogs}
+      onTriggerRebuild={onTriggerRebuild}
+      onRefreshData={loadData}
+      mainDomain={mainDomain}
+    />
+  );
+};
+
+function MainApp() {
+  const { user, isLoading: authLoading, authFetch } = useAuth();
+  const { showNotification } = useNotification();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [services, setServices] = useState<Service[]>([]);
+  const [domains, setDomains] = useState<Domain[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [isApplyingTraefik, setIsApplyingTraefik] = useState<boolean>(false);
+
+  // Modals state
+  const [serviceModalOpen, setServiceModalOpen] = useState(false);
+  const [editingService, setEditingService] = useState<Service | null>(null);
+
+  const [domainModalOpen, setDomainModalOpen] = useState(false);
+  const [editingDomain, setEditingDomain] = useState<Domain | null>(null);
+
+  const [logsModalOpen, setLogsModalOpen] = useState(false);
+  const [logsContainerName, setLogsContainerName] = useState<string>('');
+
+  const [buildLogsModalOpen, setBuildLogsModalOpen] = useState(false);
+  const [buildLogsService, setBuildLogsService] = useState<Service | null>(null);
+  const [isRebuilding, setIsRebuilding] = useState<boolean>(false);
+
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [importComposeModalOpen, setImportComposeModalOpen] = useState(false);
+
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [confirmTitle, setConfirmTitle] = useState('');
+  const [confirmDescription, setConfirmDescription] = useState('');
+  const [confirmCallback, setConfirmCallback] = useState<() => Promise<void>>(() => async () => {});
+
+  // Compute active tab from current URL pathname
+  const getCurrentTab = (): ActiveTab => {
+    const p = location.pathname;
+    if (p === '/' || p.startsWith('/dashboard')) return 'dashboard';
+    if (p.startsWith('/services/')) return 'service-detail';
+    if (p.startsWith('/services')) return 'services';
+    if (p.startsWith('/domains')) return 'domains';
+    if (p.startsWith('/default-service')) return 'default-service';
+    if (p.startsWith('/containers')) return 'containers';
+    if (p.startsWith('/traefik')) return 'traefik';
+    if (p.startsWith('/cloudflare')) return 'cloudflare';
+    if (p.startsWith('/audit')) return 'audit';
+    if (p.startsWith('/tests')) return 'tests';
+    if (p.startsWith('/settings')) return 'settings';
+    return 'dashboard';
+  };
+
+  const currentTab = getCurrentTab();
+
+  const handleNavigateTab = (tab: ActiveTab) => {
+    switch (tab) {
+      case 'dashboard':
+        navigate('/dashboard');
+        break;
+      case 'services':
+        navigate('/services');
+        break;
+      case 'service-detail':
+        navigate('/services');
+        break;
+      case 'domains':
+        navigate('/domains');
+        break;
+      case 'default-service':
+        navigate('/default-service');
+        break;
+      case 'containers':
+        navigate('/containers');
+        break;
+      case 'traefik':
+        navigate('/traefik');
+        break;
+      case 'cloudflare':
+        navigate('/cloudflare');
+        break;
+      case 'audit':
+        navigate('/audit');
+        break;
+      case 'tests':
+        navigate('/tests');
+        break;
+      case 'settings':
+        navigate('/settings');
+        break;
+      default:
+        navigate('/dashboard');
+    }
+  };
+
+  const loadData = useCallback(async () => {
+    if (!user) return;
+    setIsRefreshing(true);
+    try {
+      const [statsRes, servicesRes, domainsRes] = await Promise.all([
+        authFetch('/api/dashboard'),
+        authFetch('/api/services'),
+        authFetch('/api/domains'),
+      ]);
+
+      if (statsRes.ok) {
+        setStats(await statsRes.json());
+      }
+      if (servicesRes.ok) {
+        setServices(await servicesRes.json());
+      }
+      if (domainsRes.ok) {
+        setDomains(await domainsRes.json());
+      }
+    } catch (err) {
+      console.error('Falha ao atualizar dados:', err);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [user, authFetch]);
+
+  useEffect(() => {
+    if (user) {
+      loadData();
+    }
+  }, [user, loadData]);
+
+  // Apply Traefik dynamic config
+  const handleApplyTraefik = async () => {
+    setIsApplyingTraefik(true);
+    try {
+      const res = await authFetch('/api/traefik/apply', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        showNotification(
+          'success',
+          'Configuração Aplicada',
+          'O arquivo dynamic_conf.yml foi regenerado e sincronizado com sucesso.'
+        );
+        loadData();
+      } else {
+        showNotification('error', 'Erro ao Aplicar', data.error || 'Falha na validação do Traefik.');
+      }
+    } catch (err: any) {
+      showNotification('error', 'Erro de Conexão', err.message);
+    } finally {
+      setIsApplyingTraefik(false);
+    }
+  };
+
+  // Service CRUD handlers
+  const handleSaveService = async (serviceData: Partial<Service>): Promise<boolean> => {
+    try {
+      let res;
+      if (editingService) {
+        res = await authFetch(`/api/services/${editingService.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(serviceData),
+        });
+      } else {
+        res = await authFetch('/api/services', {
+          method: 'POST',
+          body: JSON.stringify(serviceData),
+        });
+      }
+
+      const data = await res.json();
+      if (!res.ok) {
+        showNotification('error', 'Erro ao Salvar', data.error || 'Falha ao salvar serviço.');
+        return false;
+      }
+
+      showNotification(
+        'success',
+        editingService ? 'Serviço Atualizado' : 'Serviço Criado',
+        `O serviço "${serviceData.name}" foi salvo com sucesso.`
+      );
+      loadData();
+      return true;
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+      return false;
+    }
+  };
+
+  const handleSaveServiceDetail = async (id: string, updates: Partial<Service>): Promise<boolean> => {
+    try {
+      const res = await authFetch(`/api/services/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        showNotification('error', 'Erro ao Salvar', data.error || 'Falha ao salvar alterações.');
+        return false;
+      }
+
+      showNotification('success', 'Configurações Salvas', 'Serviço, ambiente e roteamento atualizados com sucesso.');
+      loadData();
+      return true;
+    } catch (err: any) {
+      showNotification('error', 'Erro de Conexão', err.message);
+      return false;
+    }
+  };
+
+  const handleDeleteService = (service: Service) => {
+    setConfirmTitle(`Excluir Serviço: ${service.name}?`);
+    setConfirmDescription(
+      `Tem certeza que deseja remover o serviço "${service.name}" (${service.containerName})? Todos os domínios vinculados perderão o roteamento e o Traefik será reconfigurado.`
+    );
+    setConfirmCallback(() => async () => {
+      try {
+        const res = await authFetch(`/api/services/${service.id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showNotification('success', 'Serviço Removido', `O serviço "${service.name}" foi excluído.`);
+          navigate('/services');
+          loadData();
+        } else {
+          const data = await res.json();
+          showNotification('error', 'Erro ao Excluir', data.error);
+        }
+      } catch (err: any) {
+        showNotification('error', 'Erro', err.message);
+      }
+    });
+    setConfirmModalOpen(true);
+  };
+
+  const handleToggleServiceActive = async (service: Service) => {
+    try {
+      const res = await authFetch(`/api/services/${service.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ isActive: !service.isActive }),
+      });
+      if (res.ok) {
+        showNotification(
+          'info',
+          service.isActive ? 'Serviço Desativado' : 'Serviço Ativado',
+          `Roteamento para "${service.name}" foi ${service.isActive ? 'interrompido' : 'habilitado'}.`
+        );
+        loadData();
+      }
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+    }
+  };
+
+  const handleStartContainer = async (service: Service) => {
+    try {
+      const res = await authFetch(`/api/services/${service.id}/start`, { method: 'POST' });
+      if (res.ok) {
+        showNotification('success', 'Container Iniciado', `Container "${service.containerName}" iniciado.`);
+        loadData();
+      }
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+    }
+  };
+
+  const handleStopContainer = async (service: Service) => {
+    try {
+      const res = await authFetch(`/api/services/${service.id}/stop`, { method: 'POST' });
+      if (res.ok) {
+        showNotification('info', 'Container Parado', `Container "${service.containerName}" interrompido.`);
+        loadData();
+      }
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+    }
+  };
+
+  const handleRestartContainer = async (service: Service) => {
+    try {
+      const res = await authFetch(`/api/services/${service.id}/restart`, { method: 'POST' });
+      if (res.ok) {
+        showNotification('success', 'Container Reiniciado', `Container "${service.containerName}" reiniciado.`);
+        loadData();
+      }
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+    }
+  };
+
+  // Domain Handlers
+  const handleSaveDomain = async (domainData: {
+    domainName: string;
+    serviceId: string;
+    isActive?: boolean;
+    targetContainer?: string;
+    targetPort?: number;
+  }): Promise<boolean> => {
+    try {
+      let res;
+      if (editingDomain) {
+        res = await authFetch(`/api/domains/${editingDomain.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(domainData),
+        });
+      } else {
+        res = await authFetch('/api/domains', {
+          method: 'POST',
+          body: JSON.stringify(domainData),
+        });
+      }
+
+      const data = await res.json();
+      if (!res.ok) {
+        showNotification('error', 'Erro ao Salvar Domínio', data.error || 'Falha ao salvar domínio.');
+        return false;
+      }
+
+      showNotification(
+        'success',
+        editingDomain ? 'Domínio Atualizado' : 'Domínio Cadastrado',
+        `O domínio "${domainData.domainName}" foi configurado no Traefik.`
+      );
+      loadData();
+      return true;
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+      return false;
+    }
+  };
+
+  const handleDeleteDomain = (domain: Domain) => {
+    setConfirmTitle(`Excluir Domínio: ${domain.domainName}?`);
+    setConfirmDescription(
+      `O domínio "${domain.domainName}" deixará de responder imediatamente no Traefik. Deseja prosseguir?`
+    );
+    setConfirmCallback(() => async () => {
+      try {
+        const res = await authFetch(`/api/domains/${domain.id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showNotification('success', 'Domínio Removido', `O domínio "${domain.domainName}" foi desvinculado.`);
+          loadData();
+        }
+      } catch (err: any) {
+        showNotification('error', 'Erro', err.message);
+      }
+    });
+    setConfirmModalOpen(true);
+  };
+
+  const handleToggleDomainActive = async (domain: Domain) => {
+    try {
+      const res = await authFetch(`/api/domains/${domain.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ isActive: !domain.isActive }),
+      });
+      if (res.ok) {
+        showNotification(
+          'info',
+          domain.isActive ? 'Domínio Desativado' : 'Domínio Ativado',
+          `Roteamento para "${domain.domainName}" foi ${domain.isActive ? 'interrompido' : 'ativado'}.`
+        );
+        loadData();
+      }
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+    }
+  };
+
+  const handleSetDefaultService = async (serviceId: string | null): Promise<boolean> => {
+    try {
+      const res = await authFetch('/api/services/default', {
+        method: 'POST',
+        body: JSON.stringify({ serviceId }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showNotification(
+          'success',
+          'Serviço Padrão Configurado',
+          serviceId
+            ? `O container "${data.service?.name}" foi definido como fallback catch-all.`
+            : 'O fallback catch-all foi desativado.'
+        );
+        loadData();
+        return true;
+      } else {
+        showNotification('error', 'Falha', data.error);
+        return false;
+      }
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+      return false;
+    }
+  };
+
+  // Open Log Modal
+  const handleOpenLogs = (containerName: string) => {
+    setLogsContainerName(containerName);
+    setLogsModalOpen(true);
+  };
+
+  // Build Logs Modal
+  const handleOpenBuildLogs = (service: Service) => {
+    setBuildLogsService(service);
+    setBuildLogsModalOpen(true);
+  };
+
+  const handleTriggerRebuild = async (serviceId: string) => {
+    setIsRebuilding(true);
+    try {
+      const res = await authFetch(`/api/services/${serviceId}/rebuild`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        showNotification('info', 'Build Iniciado', `Rebuild do serviço disparado a partir do repositório Git.`);
+        loadData();
+      } else {
+        showNotification('error', 'Falha ao Disparar Build', data.error);
+      }
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+    } finally {
+      setIsRebuilding(false);
+    }
+  };
+
+  // Template Deploy
+  const handleDeployTemplate = async (deployData: {
+    templateId: string;
+    serviceName: string;
+    containerName: string;
+    values: Record<string, string>;
+    domainName?: string;
+  }): Promise<boolean> => {
+    try {
+      const res = await authFetch('/api/templates/deploy', {
+        method: 'POST',
+        body: JSON.stringify(deployData),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showNotification(
+          'success',
+          'Aplicação Implantada com Sucesso!',
+          `O serviço "${data.service?.name}" foi criado e roteado para o domínio ${deployData.domainName || 'padrão'}.`
+        );
+        loadData();
+        return true;
+      } else {
+        showNotification('error', 'Falha no Deploy do Template', data.error);
+        return false;
+      }
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+      return false;
+    }
+  };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs text-slate-400 font-mono">Carregando Docker Domain Manager...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <Routes>
+        <Route path="/login" element={<LoginView />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    );
+  }
+
+  return (
+    <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
+      {/* Sidebar Navigation */}
+      <Sidebar
+        currentTab={currentTab}
+        onSelectTab={handleNavigateTab}
+        servicesCount={services.length}
+        domainsCount={domains.length}
+        dockerConnected={stats?.dockerConnected ?? true}
+      />
+
+      {/* Main Viewport */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Top Header */}
+        <Header
+          currentTab={currentTab}
+          onRefresh={loadData}
+          isRefreshing={isRefreshing}
+          onApplyTraefik={handleApplyTraefik}
+          isApplyingTraefik={isApplyingTraefik}
+        />
+
+        {/* View Content Area with Declarative Routing */}
+        <main className="flex-1 overflow-y-auto p-6">
+          <div className="max-w-7xl mx-auto">
+            <Routes>
+              {/* Home & Login Redirects */}
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/login" element={<Navigate to="/dashboard" replace />} />
+
+              {/* 1. Dashboard */}
+              <Route
+                path="/dashboard"
+                element={
+                  <DashboardView
+                    stats={stats}
+                    services={services}
+                    domains={domains}
+                    onNavigate={handleNavigateTab}
+                    onOpenNewService={() => {
+                      setEditingService(null);
+                      setServiceModalOpen(true);
+                    }}
+                    onOpenTemplateModal={() => setTemplateModalOpen(true)}
+                    onOpenNewDomain={() => {
+                      setEditingDomain(null);
+                      setDomainModalOpen(true);
+                    }}
+                  />
+                }
+              />
+
+              {/* 2. Services List */}
+              <Route
+                path="/services"
+                element={
+                  <ServicesView
+                    services={services}
+                    onOpenCreate={() => {
+                      setEditingService(null);
+                      setServiceModalOpen(true);
+                    }}
+                    onOpenImportCompose={() => setImportComposeModalOpen(true)}
+                    onOpenTemplateModal={() => setTemplateModalOpen(true)}
+                    onGoToContainers={() => navigate('/containers')}
+                    onOpenEdit={(svc) => {
+                      navigate(`/services/${svc.id}?tab=containers`);
+                    }}
+                    onOpenTerminal={(svc) => {
+                      navigate(`/services/${svc.id}?tab=terminal`);
+                    }}
+                    onDelete={handleDeleteService}
+                    onToggleActive={handleToggleServiceActive}
+                    onStartContainer={handleStartContainer}
+                    onStopContainer={handleStopContainer}
+                    onRestartContainer={handleRestartContainer}
+                    onViewLogs={(svc) => handleOpenLogs(svc.containerName)}
+                    onViewBuildLogs={handleOpenBuildLogs}
+                    onTriggerRebuild={(svc) => handleTriggerRebuild(svc.id)}
+                    isLoading={isRefreshing}
+                    onRefresh={loadData}
+                  />
+                }
+              />
+
+              {/* 3. Service Detail (with URL deep-linking by ID and ?tab=...) */}
+              <Route
+                path="/services/:id"
+                element={
+                  <ServiceDetailRouteWrapper
+                    services={services}
+                    domains={domains}
+                    onSaveServiceDetail={handleSaveServiceDetail}
+                    onDeleteService={handleDeleteService}
+                    onStartContainer={handleStartContainer}
+                    onStopContainer={handleStopContainer}
+                    onRestartContainer={handleRestartContainer}
+                    onOpenLogs={handleOpenLogs}
+                    onTriggerRebuild={handleTriggerRebuild}
+                    loadData={loadData}
+                    mainDomain={stats?.mainDomain || 'bla.com.br'}
+                    isRefreshing={isRefreshing}
+                  />
+                }
+              />
+
+              {/* 4. Domains & Routing */}
+              <Route
+                path="/domains"
+                element={
+                  <DomainsView
+                    domains={domains}
+                    services={services}
+                    mainDomain={stats?.mainDomain || 'bla.com.br'}
+                    onOpenCreate={() => {
+                      setEditingDomain(null);
+                      setDomainModalOpen(true);
+                    }}
+                    onOpenEdit={(d) => {
+                      setEditingDomain(d);
+                      setDomainModalOpen(true);
+                    }}
+                    onDelete={handleDeleteDomain}
+                    onToggleActive={handleToggleDomainActive}
+                    isLoading={isRefreshing}
+                  />
+                }
+              />
+
+              {/* 5. Default Catch-All Service */}
+              <Route
+                path="/default-service"
+                element={
+                  <DefaultServiceView
+                    services={services}
+                    domains={domains}
+                    onSetDefault={handleSetDefaultService}
+                    isLoading={isRefreshing}
+                  />
+                }
+              />
+
+              {/* 6. Docker Containers */}
+              <Route
+                path="/containers"
+                element={
+                  <ContainersView
+                    existingServices={services}
+                    onOpenImportCompose={() => setImportComposeModalOpen(true)}
+                    onImportContainer={(container) => {
+                      const port =
+                        container.ports && container.ports[0]?.privatePort
+                          ? container.ports[0].privatePort
+                          : 80;
+                      const cleanName = container.name.replace(/^[\/_]/, '');
+                      setEditingService({
+                        name: cleanName
+                          .replace(/[-_]/g, ' ')
+                          .replace(/\b\w/g, (l) => l.toUpperCase()),
+                        containerName: cleanName,
+                        image: container.image,
+                        internalPort: port,
+                        sourceType: 'IMAGE',
+                        notes: `Importado de container Docker existente (${cleanName})`,
+                      } as any);
+                      setServiceModalOpen(true);
+                    }}
+                    onViewLogs={handleOpenLogs}
+                    onRestart={(name) => {
+                      const s = services.find((item) => item.containerName === name);
+                      if (s) handleRestartContainer(s);
+                    }}
+                    onOpenTerminal={(containerName) => {
+                      const s = services.find((item) => item.containerName === containerName);
+                      if (s) {
+                        navigate(`/services/${s.id}?tab=terminal`);
+                      }
+                    }}
+                    onRefresh={loadData}
+                  />
+                }
+              />
+
+              {/* 7. Traefik Dynamic Router */}
+              <Route
+                path="/traefik"
+                element={<TraefikView onApplyConfig={handleApplyTraefik} isApplying={isApplyingTraefik} />}
+              />
+
+              {/* 8. Cloudflare & SSL */}
+              <Route path="/cloudflare" element={<CloudflareView />} />
+
+              {/* 9. Audit Logs */}
+              <Route path="/audit" element={<AuditLogsView />} />
+
+              {/* 10. Test Suite */}
+              <Route path="/tests" element={<TestSuiteView />} />
+
+              {/* 11. System Settings */}
+              <Route path="/settings" element={<SettingsView />} />
+
+              {/* Catch-all fallback route */}
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Routes>
+          </div>
+        </main>
+      </div>
+
+      {/* Global Modals */}
+      <TemplateDeployModal
+        isOpen={templateModalOpen}
+        onClose={() => setTemplateModalOpen(false)}
+        onDeploy={handleDeployTemplate}
+        mainDomain={stats?.mainDomain || 'bla.com.br'}
+      />
+
+      <ServiceModal
+        isOpen={serviceModalOpen}
+        onClose={() => setServiceModalOpen(false)}
+        onSave={handleSaveService}
+        service={editingService}
+      />
+
+      <DomainModal
+        isOpen={domainModalOpen}
+        onClose={() => setDomainModalOpen(false)}
+        onSave={handleSaveDomain}
+        services={services}
+        domain={editingDomain}
+      />
+
+      <LogsModal
+        isOpen={logsModalOpen}
+        onClose={() => setLogsModalOpen(false)}
+        containerName={logsContainerName}
+      />
+
+      <BuildLogsModal
+        isOpen={buildLogsModalOpen}
+        onClose={() => setBuildLogsModalOpen(false)}
+        service={buildLogsService}
+        onTriggerRebuild={handleTriggerRebuild}
+        isRebuilding={isRebuilding}
+      />
+
+      <ConfirmModal
+        isOpen={confirmModalOpen}
+        onClose={() => setConfirmModalOpen(false)}
+        onConfirm={confirmCallback}
+        title={confirmTitle}
+        description={confirmDescription}
+      />
+
+      <ImportComposeModal
+        isOpen={importComposeModalOpen}
+        onClose={() => setImportComposeModalOpen(false)}
+        onImportSuccess={(newSvc) => {
+          loadData();
+          navigate(`/services/${newSvc.id}?tab=containers`);
+        }}
+      />
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <NotificationProvider>
+      <AuthProvider>
+        <MainApp />
+      </AuthProvider>
+    </NotificationProvider>
+  );
+}

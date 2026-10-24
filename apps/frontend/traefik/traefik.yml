@@ -1,0 +1,44 @@
+# ==============================================================================
+# CONFIGURAÇÃO ESTÁTICA DO TRAEFIK (traefik.yml)
+# Modo de Operação: File Provider Dinâmico + Cloudflare Origin CA
+# ==============================================================================
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+# Logs
+log:
+  level: INFO
+  format: common
+
+accessLog:
+  format: common
+
+# EntryPoints HTTP e HTTPS
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+
+  websecure:
+    address: ":443"
+    http:
+      tls: {}
+
+# Provedor Dinâmico de Arquivo
+# O Traefik monitora alterações no diretório /etc/traefik/dynamic/ geradas pela nossa aplicação
+providers:
+  file:
+    directory: "/etc/traefik/dynamic"
+    watch: true
+
+# API e Dashboard
+api:
+  dashboard: true
+  insecure: false

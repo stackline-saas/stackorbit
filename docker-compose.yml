@@ -1,0 +1,155 @@
+# ==============================================================================
+# DOCKER-COMPOSE: DOCKER DOMAIN MANAGER (TRAEFIK + POSTGRESQL + REDIS + API + WORKER)
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. BANCO DE DADOS POSTGRESQL 16
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: domain-manager-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
+      POSTGRES_DB: ${POSTGRES_DB:-domainmanager}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-domainmanager}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    ports:
+      - "5432:5432"
+    networks:
+      - proxy-net
+
+  # ----------------------------------------------------------------------------
+  # 2. FILAS ASSÍNCRONAS REDIS 7 (BULLMQ)
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: domain-manager-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    ports:
+      - "6379:6379"
+    networks:
+      - proxy-net
+
+  # ----------------------------------------------------------------------------
+  # 3. PROXY REVERSO TRAEFIK V3 (ROTEAMENTO DINÂMICO & CLOUDFLARE ORIGIN CA)
+  # ----------------------------------------------------------------------------
+  traefik:
+    image: traefik:v3.1
+    container_name: domain-manager-traefik
+    restart: unless-stopped
+    command:
+      - "--global.checknewversion=false"
+      - "--global.sendanonymoususage=false"
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
+      - "--entrypoints.websecure.address=:443"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+      - "--api.dashboard=true"
+      - "--api.insecure=false"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:8080:8080" # Dashboard Traefik protegido
+    volumes:
+      - traefik-dynamic:/etc/traefik/dynamic:ro
+      - traefik-certs:/etc/traefik/certs:ro
+    networks:
+      - proxy-net
+
+  # ----------------------------------------------------------------------------
+  # 4. BACKEND API REST (EXPRESS + PRISMA POSTGRESQL + DOCKERODE)
+  # ----------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    container_name: domain-manager-api
+    restart: unless-stopped
+    command: ["sh", "-c", "pnpm --filter @docker-domain/database prisma:push --accept-data-loss && node packages/database/dist/seed.js && node apps/backend/dist/server.js"]
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgrespassword}@postgres:5432/${POSTGRES_DB:-domainmanager}?schema=public
+      - JWT_SECRET=${JWT_SECRET:-docker-domain-manager-jwt-secret-key-2026-strict}
+      - DOCKER_SOCKET_PATH=/var/run/docker.sock
+      - TRAEFIK_DYNAMIC_CONFIG_PATH=/app/traefik/dynamic/dynamic_conf.yml
+      - TRAEFIK_CERTS_DIR=/app/traefik/certs
+      - REDIS_URL=redis://redis:6379
+      - DOCKER_NETWORK=proxy-net
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - traefik-dynamic:/app/traefik/dynamic:rw
+      - traefik-certs:/app/traefik/certs:rw
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - proxy-net
+
+  # ----------------------------------------------------------------------------
+  # 5. BACKGROUND WORKER (DOCKER EVENTS + GIT BUILDS + HEALTHCHECKS)
+  # ----------------------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    container_name: domain-manager-worker
+    restart: unless-stopped
+    command: ["node", "apps/worker/dist/index.js"]
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgrespassword}@postgres:5432/${POSTGRES_DB:-domainmanager}?schema=public
+      - DOCKER_SOCKET_PATH=/var/run/docker.sock
+      - TRAEFIK_DYNAMIC_CONFIG_PATH=/app/traefik/dynamic/dynamic_conf.yml
+      - TRAEFIK_CERTS_DIR=/app/traefik/certs
+      - REDIS_URL=redis://redis:6379
+      - DOCKER_NETWORK=proxy-net
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - traefik-dynamic:/app/traefik/dynamic:rw
+      - traefik-certs:/app/traefik/certs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - proxy-net
+
+networks:
+  proxy-net:
+    name: proxy-net
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  traefik-dynamic:
+  traefik-certs:

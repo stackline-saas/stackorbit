@@ -74,11 +74,23 @@ export function matchContainersForService(
   });
 }
 
-// 1. List all services
+// 1. List all services (com filtro opcional de projectId)
 router.get('/', requireAuth, async (req, res) => {
+  const { projectId } = req.query;
+
   try {
+    const where: any = {};
+    if (projectId && typeof projectId === 'string') {
+      where.projectId = projectId;
+    }
+
     const services = await prisma.service.findMany({
-      include: { domains: true },
+      where,
+      include: {
+        domains: true,
+        project: { select: { id: true, name: true, slug: true, type: true } },
+        dockerHost: { select: { id: true, name: true, status: true, type: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -553,6 +565,20 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
     const defaultImage = image || (sourceType === 'GITHUB' ? `${containerName}:latest` : 'nginx:alpine');
     const webhookSecret = crypto.randomBytes(24).toString('hex');
 
+    let finalProjectId = req.body.projectId;
+    let finalDockerHostId = req.body.dockerHostId;
+
+    if (!finalProjectId) {
+      const defProj = (await prisma.project.findFirst({ where: { isDefault: true } })) || (await prisma.project.findFirst());
+      finalProjectId = defProj?.id || null;
+    }
+
+    if (!finalDockerHostId && finalProjectId) {
+      const hostInProject = await prisma.dockerHost.findFirst({ where: { projectId: finalProjectId } });
+      const defHost = hostInProject || (await prisma.dockerHost.findFirst({ where: { isDefault: true } }));
+      finalDockerHostId = defHost?.id || null;
+    }
+
     const service = await prisma.service.create({
       data: {
         name: name.trim(),
@@ -573,8 +599,14 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
         webhookSecret,
         status: sourceType === 'GITHUB' && triggerInitialBuild !== false ? 'stopped' : 'running',
         buildStatus: sourceType === 'GITHUB' && triggerInitialBuild !== false ? 'cloning' : 'idle',
+        projectId: finalProjectId,
+        dockerHostId: finalDockerHostId,
       },
-      include: { domains: true },
+      include: {
+        domains: true,
+        project: { select: { id: true, name: true, slug: true, type: true } },
+        dockerHost: { select: { id: true, name: true, status: true, type: true } },
+      },
     });
 
     // Check if container already exists on Docker daemon (e.g. started via docker-compose externally)

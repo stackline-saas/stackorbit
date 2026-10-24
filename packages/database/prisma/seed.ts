@@ -38,6 +38,43 @@ async function main() {
   });
   console.log('⚙️ Configurações da aplicação inicializadas no PostgreSQL.');
 
+  // 2.1 Default Project & Host
+  const defaultProject = await prisma.project.upsert({
+    where: { slug: 'default' },
+    update: {},
+    create: {
+      name: 'Projeto Principal',
+      slug: 'default',
+      description: 'Ambiente principal de produção e orquestração de serviços',
+      type: 'STANDALONE',
+      isDefault: true,
+    },
+  });
+
+  const defaultHost = await prisma.dockerHost.upsert({
+    where: { id: 'default-host' },
+    update: {},
+    create: {
+      id: 'default-host',
+      name: 'Servidor Principal (Docker Local/SSH)',
+      projectId: defaultProject.id,
+      type: process.env.DOCKER_HOST?.startsWith('ssh://') ? 'SSH' : 'LOCAL_SOCKET',
+      status: 'ONLINE',
+      endpointUrl: process.env.DOCKER_HOST || process.env.DOCKER_SOCKET_PATH || '/var/run/docker.sock',
+      isDefault: true,
+    },
+  });
+
+  // Link existing orphan services to default project and host
+  await prisma.service.updateMany({
+    where: { projectId: null },
+    data: {
+      projectId: defaultProject.id,
+      dockerHostId: defaultHost.id,
+    },
+  });
+  console.log('🏢 Projeto Principal e Host Padrão inicializados com sucesso.');
+
   // 3. Initial Services
   const srvApi = await prisma.service.upsert({
     where: { containerName: 'api' },

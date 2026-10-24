@@ -19,6 +19,8 @@ import auditRoutes from './routes/audit.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import testSuiteRoutes from './routes/test-suite.routes.js';
 import webhooksRoutes from './routes/webhooks.routes.js';
+import projectsRoutes from './routes/projects.routes.js';
+import hostsRoutes from './routes/hosts.routes.js';
 import { integrationsRouter } from './routes/integrations.routes.js';
 import { requireAuth, type AuthenticatedRequest } from './middleware/auth.middleware.js';
 
@@ -53,6 +55,8 @@ app.use((req, res, next) => {
 // API ROUTES
 // ==========================================
 app.use('/api/auth', authRoutes);
+app.use('/api/projects', projectsRoutes);
+app.use('/api/hosts', hostsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/services', servicesRoutes);
 app.use('/api/domains', domainsRoutes);

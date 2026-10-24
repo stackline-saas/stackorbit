@@ -13,6 +13,25 @@ enum Role {
   OPERATOR
 }
 
+enum DockerHostType {
+  LOCAL_SOCKET
+  SSH
+  TCP_TLS
+  EDGE_AGENT
+}
+
+enum DockerHostStatus {
+  ONLINE
+  OFFLINE
+  CONNECTING
+  ERROR
+}
+
+enum ProjectType {
+  STANDALONE
+  SWARM
+}
+
 model User {
   id           String     @id @default(cuid())
   name         String
@@ -54,12 +73,68 @@ model Service {
   network        String?     @default("proxy-net")
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
+  projectId      String?
+  project        Project?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  dockerHostId   String?
+  dockerHost     DockerHost? @relation(fields: [dockerHostId], references: [id], onDelete: SetNull)
   domains        Domain[]
   buildLogsList  BuildLog[]
 
   @@index([isActive])
   @@index([isDefault])
+  @@index([projectId])
+  @@index([dockerHostId])
   @@map("services")
+}
+
+model Project {
+  id                    String       @id @default(cuid())
+  name                  String       @unique
+  slug                  String       @unique
+  description           String?
+  type                  ProjectType  @default(STANDALONE)
+  isDefault             Boolean      @default(false)
+  swarmJoinTokenManager String?
+  swarmJoinTokenWorker  String?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  hosts                 DockerHost[]
+  services              Service[]
+
+  @@map("projects")
+}
+
+model DockerHost {
+  id             String           @id @default(cuid())
+  name           String
+  projectId      String
+  project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type           DockerHostType   @default(SSH)
+  status         DockerHostStatus @default(OFFLINE)
+  endpointUrl    String           // Ex: "ssh://user@203.0.113.10:22", "tcp://ip:2376", ou "/var/run/docker.sock"
+  sshUser        String?
+  sshKey         String?          @db.Text
+  sshPassword    String?
+  tlsCert        String?          @db.Text
+  tlsKey         String?          @db.Text
+  tlsCa          String?          @db.Text
+  agentToken     String?          @unique
+  isDefault      Boolean          @default(false)
+  isSwarmManager Boolean          @default(false)
+  swarmNodeId    String?
+  cpuUsage       Float?
+  memUsage       Float?
+  dockerVersion  String?
+  osInfo         String?
+  containersCount Int?            @default(0)
+  lastPingAt     DateTime?
+  errorMessage   String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  services       Service[]
+
+  @@index([projectId])
+  @@map("docker_hosts")
 }
 
 model Domain {

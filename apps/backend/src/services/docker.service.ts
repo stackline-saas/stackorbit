@@ -1,6 +1,7 @@
 import Docker from 'dockerode';
 import { config } from '../config.js';
 import { createDockerClient } from './docker-connection.js';
+import { dockerHostManager } from './docker-host-manager.js';
 
 export interface DockerPingStatus {
   connected: boolean;
@@ -37,20 +38,21 @@ export class DockerService {
   private initPromise: Promise<Docker>;
 
   constructor() {
-    this.initPromise = createDockerClient().then((client) => {
+    this.initPromise = dockerHostManager.getClientForHost().then((client) => {
       this.docker = client;
       return client;
     });
   }
 
-  public async getClient(): Promise<Docker> {
+  public async getClient(hostId?: string | null): Promise<Docker> {
+    if (hostId) return dockerHostManager.getClientForHost(hostId);
     if (this.docker) return this.docker;
     return this.initPromise;
   }
 
-  public async getStatus(): Promise<DockerPingStatus> {
+  public async getStatus(hostId?: string | null): Promise<DockerPingStatus> {
     try {
-      const docker = await this.getClient();
+      const docker = await this.getClient(hostId);
       const ping = await docker.ping();
       if (ping) {
         const versionInfo = await docker.version();
@@ -77,9 +79,10 @@ export class DockerService {
     };
   }
 
-  public async listContainers(): Promise<ContainerInfo[]> {
+  public async listContainers(hostId?: string | null): Promise<ContainerInfo[]> {
     try {
-      const rawContainers = await this.docker.listContainers({ all: true });
+      const docker = await this.getClient(hostId);
+      const rawContainers = await docker.listContainers({ all: true });
       return rawContainers.map((c) => {
         const rawName = c.Names && c.Names[0] ? c.Names[0].replace(/^\//, '') : c.Id.slice(0, 12);
         let status: 'running' | 'stopped' | 'paused' | 'restarting' = 'stopped';

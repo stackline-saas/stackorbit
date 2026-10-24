@@ -3362,35 +3362,41 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Caminho do Dockerfile
+                        {dockerfilePath && (dockerfilePath.endsWith('.yml') || dockerfilePath.endsWith('.yaml') || dockerfilePath.includes('compose'))
+                          ? 'Caminho do Docker Compose'
+                          : 'Caminho do Dockerfile'}
                       </label>
                       <input
                         type="text"
                         value={dockerfilePath}
                         onChange={(e) => setDockerfilePath(e.target.value)}
-                        placeholder="Dockerfile ou deploy/Dockerfile"
+                        placeholder="docker-compose.yml ou Dockerfile"
                         className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                       />
                       <p className="text-[11px] text-slate-400 mt-1">
-                        Caminho relativo do arquivo Dockerfile (padrão: <code className="font-mono">Dockerfile</code>).
+                        {dockerfilePath && (dockerfilePath.endsWith('.yml') || dockerfilePath.endsWith('.yaml') || dockerfilePath.includes('compose'))
+                          ? 'Caminho relativo do arquivo Docker Compose no repositório.'
+                          : 'Caminho relativo do arquivo Dockerfile (padrão: Dockerfile).'}
                       </p>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Contexto do Build (Root Directory)
-                      </label>
-                      <input
-                        type="text"
-                        value={buildContext}
-                        onChange={(e) => setBuildContext(e.target.value)}
-                        placeholder=". ou apps/backend"
-                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                      />
-                      <p className="text-[11px] text-slate-400 mt-1">
-                        Diretório enviado ao Docker daemon (útil para monorepos, padrão: <code className="font-mono">.</code>).
-                      </p>
-                    </div>
+                    {!dockerfilePath || (!dockerfilePath.endsWith('.yml') && !dockerfilePath.endsWith('.yaml') && !dockerfilePath.includes('compose')) ? (
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Contexto do Build (Root Directory)
+                        </label>
+                        <input
+                          type="text"
+                          value={buildContext}
+                          onChange={(e) => setBuildContext(e.target.value)}
+                          placeholder=". ou apps/backend"
+                          className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                        />
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          Diretório enviado ao Docker daemon (útil para monorepos, padrão: <code className="font-mono">.</code>).
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
 
                   {/* GitHub PAT Token */}

@@ -25,6 +25,7 @@ import { AuditLogsView } from './components/views/AuditLogsView.tsx';
 import { TestSuiteView } from './components/views/TestSuiteView.tsx';
 import { SettingsView } from './components/views/SettingsView.tsx';
 import { ServiceDetailView } from './components/views/ServiceDetailView.tsx';
+import { CreateServiceView } from './components/views/CreateServiceView.tsx';
 import {
   ServiceModal,
   DomainModal,
@@ -631,8 +632,7 @@ function MainApp() {
                     domains={domains}
                     onNavigate={handleNavigateTab}
                     onOpenNewService={() => {
-                      setEditingService(null);
-                      setServiceModalOpen(true);
+                      navigate('/services/new');
                     }}
                     onOpenTemplateModal={() => setTemplateModalOpen(true)}
                     onOpenNewDomain={() => {
@@ -650,8 +650,7 @@ function MainApp() {
                   <ServicesView
                     services={services}
                     onOpenCreate={() => {
-                      setEditingService(null);
-                      setServiceModalOpen(true);
+                      navigate('/services/new');
                     }}
                     onOpenImportCompose={() => setImportComposeModalOpen(true)}
                     onOpenTemplateModal={() => setTemplateModalOpen(true)}
@@ -672,6 +671,34 @@ function MainApp() {
                     onTriggerRebuild={(svc) => handleTriggerRebuild(svc.id)}
                     isLoading={isRefreshing}
                     onRefresh={loadData}
+                  />
+                }
+              />
+
+              {/* 2b. New Service Page */}
+              <Route
+                path="/services/new"
+                element={
+                  <CreateServiceView
+                    onSave={async (serviceData) => {
+                      try {
+                        const res = await authFetch('/api/services', {
+                          method: 'POST',
+                          body: JSON.stringify(serviceData),
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                          showNotification('error', 'Erro ao Criar Serviço', data.error || 'Falha ao salvar serviço.');
+                          return false;
+                        }
+                        showNotification('success', 'Serviço Criado', `O serviço "${serviceData.name}" foi cadastrado com sucesso.`);
+                        loadData();
+                        return true;
+                      } catch (err: any) {
+                        showNotification('error', 'Erro', err.message);
+                        return false;
+                      }
+                    }}
                   />
                 }
               />
@@ -746,17 +773,13 @@ function MainApp() {
                           ? container.ports[0].privatePort
                           : 80;
                       const cleanName = container.name.replace(/^[\/_]/, '');
-                      setEditingService({
-                        name: cleanName
-                          .replace(/[-_]/g, ' ')
-                          .replace(/\b\w/g, (l) => l.toUpperCase()),
+                      navigate(`/services/new?prefill=${encodeURIComponent(JSON.stringify({
+                        name: cleanName.replace(/[-_]/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
                         containerName: cleanName,
                         image: container.image,
                         internalPort: port,
                         sourceType: 'IMAGE',
-                        notes: `Importado de container Docker existente (${cleanName})`,
-                      } as any);
-                      setServiceModalOpen(true);
+                      }))}`);
                     }}
                     onViewLogs={handleOpenLogs}
                     onRestart={(name) => {

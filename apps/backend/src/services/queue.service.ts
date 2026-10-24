@@ -9,6 +9,9 @@ export interface BuildJobData {
   dockerfilePath: string;
   envVars?: string;
   triggeredBy?: string;
+  gitToken?: string;
+  buildContext?: string;
+  buildArgs?: Record<string, string>;
 }
 
 export class QueueService {

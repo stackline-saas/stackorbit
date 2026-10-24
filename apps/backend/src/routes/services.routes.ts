@@ -12,6 +12,9 @@ const CONTAINER_NAME_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
 interface ServiceMetadata {
   composeProject?: string;
   linkedContainers?: string[];
+  gitToken?: string;
+  buildContext?: string;
+  buildArgs?: Record<string, string>;
 }
 
 export function parseServiceMetadata(notes?: string | null): { userNotes: string; meta: ServiceMetadata } {
@@ -498,6 +501,10 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
     gitRepoUrl,
     gitBranch,
     dockerfilePath,
+    gitToken,
+    buildContext,
+    buildArgs,
+    triggerInitialBuild,
     envVars,
     notes,
     isDefault,
@@ -537,6 +544,12 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
       });
     }
 
+    const { userNotes, meta } = parseServiceMetadata(notes);
+    if (gitToken) meta.gitToken = gitToken.trim();
+    if (buildContext) meta.buildContext = buildContext.trim();
+    if (buildArgs) meta.buildArgs = buildArgs;
+    const finalNotes = serializeServiceMetadata(userNotes, meta);
+
     const defaultImage = image || (sourceType === 'GITHUB' ? `${containerName}:latest` : 'nginx:alpine');
     const webhookSecret = crypto.randomBytes(24).toString('hex');
 
@@ -551,14 +564,15 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
         gitBranch: gitBranch?.trim() || 'main',
         dockerfilePath: dockerfilePath?.trim() || 'Dockerfile',
         envVars: envVars || '',
-        notes: notes?.trim() || null,
+        notes: finalNotes || null,
         isDefault: Boolean(isDefault),
         restartPolicy: restartPolicy || 'unless-stopped',
         memoryLimitMb: memoryLimitMb ? Number(memoryLimitMb) : null,
         cpuLimit: cpuLimit ? Number(cpuLimit) : null,
         command: command || null,
         webhookSecret,
-        status: 'running',
+        status: sourceType === 'GITHUB' && triggerInitialBuild !== false ? 'stopped' : 'running',
+        buildStatus: sourceType === 'GITHUB' && triggerInitialBuild !== false ? 'cloning' : 'idle',
       },
       include: { domains: true },
     });
@@ -606,15 +620,20 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
         console.warn(`Aviso ao criar container para ${service.name}:`, dockerErr.message);
       }
     } else if (service.sourceType === 'GITHUB' && service.gitRepoUrl) {
-      // Enqueue initial build
-      await queueService.addBuildJob({
-        serviceId: service.id,
-        gitRepoUrl: service.gitRepoUrl,
-        gitBranch: service.gitBranch || 'main',
-        dockerfilePath: service.dockerfilePath || 'Dockerfile',
-        envVars: service.envVars || undefined,
-        triggeredBy: req.user?.name || 'Administrador',
-      });
+      if (triggerInitialBuild !== false) {
+        // Enqueue initial build
+        await queueService.addBuildJob({
+          serviceId: service.id,
+          gitRepoUrl: service.gitRepoUrl,
+          gitBranch: service.gitBranch || 'main',
+          dockerfilePath: service.dockerfilePath || 'Dockerfile',
+          envVars: service.envVars || undefined,
+          triggeredBy: req.user?.name || 'Administrador',
+          gitToken: meta.gitToken,
+          buildContext: meta.buildContext,
+          buildArgs: meta.buildArgs,
+        });
+      }
     }
 
     await traefikService.applyConfig(req.user?.name || 'Administrador');
@@ -654,11 +673,21 @@ router.put('/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
     }
 
     let finalNotes = service.notes;
+    const { userNotes, meta } = parseServiceMetadata(service.notes);
+    let updatedMeta = { ...meta };
+    if (updates.gitToken !== undefined) {
+      if (updates.gitToken && updates.gitToken.trim()) updatedMeta.gitToken = updates.gitToken.trim();
+      else delete updatedMeta.gitToken;
+    }
+    if (updates.buildContext !== undefined) {
+      updatedMeta.buildContext = updates.buildContext ? updates.buildContext.trim() : '.';
+    }
     if (updates.notes !== undefined) {
-      const { meta } = parseServiceMetadata(service.notes);
       const incoming = parseServiceMetadata(updates.notes);
-      const mergedMeta = { ...meta, ...incoming.meta };
-      finalNotes = serializeServiceMetadata(incoming.userNotes, mergedMeta);
+      updatedMeta = { ...updatedMeta, ...incoming.meta };
+      finalNotes = serializeServiceMetadata(incoming.userNotes, updatedMeta);
+    } else if (updates.gitToken !== undefined || updates.buildContext !== undefined) {
+      finalNotes = serializeServiceMetadata(userNotes, updatedMeta);
     }
 
     const updated = await prisma.service.update({
@@ -858,6 +887,8 @@ const handleRebuild = async (req: AuthenticatedRequest, res: any) => {
       return res.status(400).json({ error: 'Este serviço não está configurado para deploy via Git/GitHub.' });
     }
 
+    const { meta } = parseServiceMetadata(service.notes);
+
     await prisma.service.update({
       where: { id },
       data: { buildStatus: 'cloning' },
@@ -870,6 +901,9 @@ const handleRebuild = async (req: AuthenticatedRequest, res: any) => {
       dockerfilePath: service.dockerfilePath || 'Dockerfile',
       envVars: service.envVars || undefined,
       triggeredBy: req.user?.name || 'Administrador',
+      gitToken: meta.gitToken,
+      buildContext: meta.buildContext,
+      buildArgs: meta.buildArgs,
     });
 
     await logAudit({
@@ -890,6 +924,20 @@ const handleRebuild = async (req: AuthenticatedRequest, res: any) => {
 
 router.post('/:id/rebuild', requireAuth, handleRebuild);
 router.post('/:id/build', requireAuth, handleRebuild);
+
+// Get build history for service
+router.get('/:id/builds', requireAuth, async (req, res) => {
+  try {
+    const builds = await prisma.buildLog.findMany({
+      where: { serviceId: req.params.id },
+      orderBy: { startedAt: 'desc' },
+      take: 20,
+    });
+    return res.json(builds);
+  } catch (err: any) {
+    return res.status(500).json({ error: `Erro ao obter histórico de builds: ${err.message}` });
+  }
+});
 
 // 9. Container Logs & Build Logs
 router.get('/:id/logs', requireAuth, async (req, res) => {

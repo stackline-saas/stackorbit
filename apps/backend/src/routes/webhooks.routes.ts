@@ -35,6 +35,12 @@ router.post('/github/:id', async (req, res) => {
       data: { buildStatus: 'cloning' },
     });
 
+    const match = service.notes?.match(/<!--dm-meta:([\s\S]*?)-->/);
+    let meta: any = {};
+    if (match) {
+      try { meta = JSON.parse(match[1]); } catch {}
+    }
+
     const job = await queueService.addBuildJob({
       serviceId: service.id,
       gitRepoUrl: service.gitRepoUrl,
@@ -42,6 +48,9 @@ router.post('/github/:id', async (req, res) => {
       dockerfilePath: service.dockerfilePath || 'Dockerfile',
       envVars: service.envVars || undefined,
       triggeredBy: 'GitHub Webhook (Push)',
+      gitToken: meta.gitToken,
+      buildContext: meta.buildContext,
+      buildArgs: meta.buildArgs,
     });
 
     await logAudit({

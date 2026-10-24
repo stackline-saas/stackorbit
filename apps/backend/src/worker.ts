@@ -92,13 +92,25 @@ async function startDockerEventListener() {
 // 2. GIT BUILD & DEPLOY JOB PROCESSOR
 // ===================================================================
 async function processBuildJob(data: BuildJobData): Promise<void> {
-  const { serviceId, gitRepoUrl, gitBranch, dockerfilePath, envVars } = data;
+  const { serviceId, gitRepoUrl, gitBranch, dockerfilePath, envVars, gitToken, buildContext, buildArgs } = data;
   console.log(`\n🔨 Iniciando Build Job para o serviço: ${serviceId}`);
 
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
   if (!service) {
     console.error(`Serviço ${serviceId} não encontrado.`);
     return;
+  }
+
+  // Check if token was provided in data or stored in service metadata notes
+  let token = gitToken;
+  if (!token && service.notes) {
+    try {
+      const match = service.notes.match(/<!--dm-meta:(.*?)-->/);
+      if (match) {
+        const meta = JSON.parse(match[1]);
+        if (meta.gitToken) token = meta.gitToken;
+      }
+    } catch {}
   }
 
   // Create build log entry in database
@@ -112,8 +124,13 @@ async function processBuildJob(data: BuildJobData): Promise<void> {
 
   let aggregatedLogs = `[${new Date().toISOString()}] Iniciando build para ${service.name} (${service.containerName})\n`;
 
+  const sanitize = (str: string): string => {
+    if (!token) return str;
+    return str.replaceAll(token, '******');
+  };
+
   const appendLogs = async (msg: string) => {
-    aggregatedLogs += msg;
+    aggregatedLogs += sanitize(msg);
     try {
       await prisma.buildLog.update({
         where: { id: buildLogRecord.id },
@@ -135,45 +152,60 @@ async function processBuildJob(data: BuildJobData): Promise<void> {
     }
     fs.mkdirSync(buildWorkspace, { recursive: true });
 
-    // 2. Git Clone
-    await appendLogs(`[GIT] Clonando ${gitRepoUrl} na branch "${gitBranch}"...\n`);
-    const git = simpleGit();
-    await git.clone(gitRepoUrl, buildWorkspace, ['--branch', gitBranch, '--depth', '1']);
-    await appendLogs(`[GIT] Repositório clonado com sucesso em ${buildWorkspace}.\n`);
+    // 2. Git Clone (with private token support if available)
+    let cloneUrl = gitRepoUrl;
+    if (token && cloneUrl.startsWith('https://')) {
+      cloneUrl = cloneUrl.replace('https://', `https://x-access-token:${token}@`);
+    }
 
-    // Get latest commit hash
+    await appendLogs(`[GIT] Clonando repositório na branch "${gitBranch}"...\n`);
+    const git = simpleGit();
+    await git.clone(cloneUrl, buildWorkspace, ['--branch', gitBranch, '--depth', '1']);
+    await appendLogs(`[GIT] Repositório clonado com sucesso.\n`);
+
+    // Get latest commit hash and author
     const gitInstance = simpleGit(buildWorkspace);
     const commitLog = await gitInstance.log(['-n', '1']);
     const commitHash = commitLog.latest?.hash.slice(0, 7) || 'HEAD';
-    await appendLogs(`[GIT] Commit mais recente: ${commitHash} - ${commitLog.latest?.message}\n`);
+    const commitMsg = commitLog.latest?.message || '';
+    const commitAuthor = commitLog.latest?.author_name || '';
+    await appendLogs(`[GIT] Commit: ${commitHash} por ${commitAuthor} - ${commitMsg}\n`);
 
     // 3. Verify Dockerfile
+    const contextRel = buildContext?.trim() || '.';
+    const contextDir = path.resolve(buildWorkspace, contextRel);
     const dockerfileRelative = dockerfilePath || 'Dockerfile';
-    const dockerfileAbsolute = path.resolve(buildWorkspace, dockerfileRelative);
+    const dockerfileAbsolute = path.resolve(contextDir, dockerfileRelative);
+
     if (!fs.existsSync(dockerfileAbsolute)) {
-      throw new Error(`Dockerfile não localizado no caminho: ${dockerfileRelative}`);
+      throw new Error(`Dockerfile não localizado em "${dockerfileRelative}" no contexto "${contextRel}".`);
     }
 
-    await appendLogs(`[DOCKER] Dockerfile validado. Criando arquivo tar para build...\n`);
+    await appendLogs(`[DOCKER] Dockerfile validado em "${dockerfileRelative}". Preparando build...\n`);
     await prisma.service.update({
       where: { id: serviceId },
       data: { buildStatus: 'building' },
     });
     await prisma.buildLog.update({
       where: { id: buildLogRecord.id },
-      data: { status: 'building', gitCommit: commitHash },
+      data: { status: 'building', gitCommit: `${commitHash} - ${commitMsg.slice(0, 40)}` },
     });
 
     // 4. Pack workspace into tar stream for docker.buildImage
-    const tarStream = tar.pack(buildWorkspace);
+    const tarStream = tar.pack(contextDir);
     const imageName = `${service.containerName}:latest`;
 
-    await appendLogs(`[DOCKER] Disparando docker.buildImage para a tag "${imageName}"...\n`);
+    await appendLogs(`[DOCKER] Compilando imagem Docker "${imageName}"...\n`);
 
-    const buildStream = (await dockerService.docker.buildImage(tarStream as any, {
+    const buildOptions: any = {
       t: imageName,
       dockerfile: dockerfileRelative,
-    })) as any;
+    };
+    if (buildArgs && Object.keys(buildArgs).length > 0) {
+      buildOptions.buildargs = buildArgs;
+    }
+
+    const buildStream = (await dockerService.docker.buildImage(tarStream as any, buildOptions)) as any;
 
     await new Promise((resolve, reject) => {
       dockerService.docker.modem.followProgress(
@@ -229,7 +261,7 @@ async function processBuildJob(data: BuildJobData): Promise<void> {
     });
 
     await traefikService.applyConfig(`Worker: Build de ${service.name}`);
-    await appendLogs(`[TRAEFIK] Regras do Traefik regeneradas automaticamente.\n`);
+    await appendLogs(`[TRAEFIK] Roteamento Traefik sincronizado com sucesso.\n`);
     console.log(`✅ Build do serviço "${service.name}" concluído com sucesso!`);
   } catch (err: any) {
     console.error(`❌ Erro no build do serviço ${service.name}:`, err.message);

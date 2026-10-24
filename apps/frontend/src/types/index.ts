@@ -38,6 +38,23 @@ export interface Service {
   volumes?: string;
   network?: string;
   containerCount?: number;
+  meta?: {
+    composeProject?: string;
+    linkedContainers?: string[];
+    gitToken?: string;
+    buildContext?: string;
+    buildArgs?: Record<string, string>;
+  };
+}
+
+export interface BuildLogRecord {
+  id: string;
+  serviceId: string;
+  status: 'cloning' | 'building' | 'success' | 'failed';
+  logs: string;
+  gitCommit?: string | null;
+  startedAt: string;
+  finishedAt?: string | null;
 }
 
 export type ActiveTab =

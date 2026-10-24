@@ -49,6 +49,8 @@ import {
   ChevronDown,
   ChevronRight,
   Minus,
+  Clock,
+  GitCommit,
 } from 'lucide-react';
 import type { Service, Domain, DockerContainerInfo } from '../../types/index.ts';
 import { useNotification } from '../../context/NotificationContext.tsx';
@@ -134,6 +136,14 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
   const [gitRepoUrl, setGitRepoUrl] = useState(service.gitRepoUrl || '');
   const [gitBranch, setGitBranch] = useState(service.gitBranch || 'main');
   const [dockerfilePath, setDockerfilePath] = useState(service.dockerfilePath || 'Dockerfile');
+  const [gitToken, setGitToken] = useState(service.meta?.gitToken || '');
+  const [showGitToken, setShowGitToken] = useState(false);
+  const [buildContext, setBuildContext] = useState(service.meta?.buildContext || '.');
+  const [buildsHistory, setBuildsHistory] = useState<any[]>([]);
+  const [isLoadingBuilds, setIsLoadingBuilds] = useState(false);
+  const [isTriggeringRebuild, setIsTriggeringRebuild] = useState(false);
+  const [liveBuildLogs, setLiveBuildLogs] = useState(service.buildLogs || '');
+  const [selectedBuildForLogs, setSelectedBuildForLogs] = useState<any | null>(null);
 
   // Docker Advanced
   const [restartPolicy, setRestartPolicy] = useState(service.restartPolicy || 'unless-stopped');
@@ -537,6 +547,69 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
         modalTerminalBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
         modalTerminalInputRef.current?.focus();
       }, 50);
+    }
+  };
+
+  // Fetch Build History
+  const fetchBuildsHistory = async () => {
+    if (sourceType !== 'GITHUB') return;
+    setIsLoadingBuilds(true);
+    try {
+      const res = await authFetch(`/api/services/${service.id}/builds`);
+      if (res.ok) {
+        setBuildsHistory(await res.json());
+      }
+    } catch {} finally {
+      setIsLoadingBuilds(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'build') {
+      fetchBuildsHistory();
+    }
+  }, [activeTab]);
+
+  // Poll service status and build logs if build is running
+  useEffect(() => {
+    const isBuilding = service.buildStatus === 'cloning' || service.buildStatus === 'building' || isTriggeringRebuild;
+    if (!isBuilding && activeTab !== 'build') return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await authFetch(`/api/services/${service.id}`);
+        if (res.ok) {
+          const freshSvc = await res.json();
+          if (freshSvc.buildLogs) setLiveBuildLogs(freshSvc.buildLogs);
+          if (freshSvc.buildStatus !== 'cloning' && freshSvc.buildStatus !== 'building') {
+            setIsTriggeringRebuild(false);
+            fetchBuildsHistory();
+          }
+        }
+      } catch {}
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [service.buildStatus, activeTab, isTriggeringRebuild]);
+
+  // Trigger manual rebuild
+  const handleTriggerManualBuild = async () => {
+    setIsTriggeringRebuild(true);
+    try {
+      const res = await authFetch(`/api/services/${service.id}/rebuild`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        showNotification('info', 'Build Iniciado', 'Compilação disparada a partir do repositório Git.');
+        setLiveBuildLogs(`[${new Date().toISOString()}] Enfileirado no Worker...\n`);
+        if (onRefreshData) onRefreshData();
+        fetchBuildsHistory();
+      } else {
+        showNotification('error', 'Falha ao Disparar Build', data.error);
+        setIsTriggeringRebuild(false);
+      }
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+      setIsTriggeringRebuild(false);
     }
   };
 
@@ -1009,6 +1082,8 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
         gitRepoUrl: sourceType === 'GITHUB' ? gitRepoUrl.trim() : undefined,
         gitBranch: sourceType === 'GITHUB' ? gitBranch.trim() : undefined,
         dockerfilePath: sourceType === 'GITHUB' ? dockerfilePath.trim() : undefined,
+        gitToken: sourceType === 'GITHUB' ? (gitToken.trim() || undefined) : undefined,
+        buildContext: sourceType === 'GITHUB' ? (buildContext.trim() || '.') : undefined,
         envVars: rawEnv,
         restartPolicy: restartPolicy as any,
         memoryLimitMb: memoryLimitMb ? Number(memoryLimitMb) : undefined,
@@ -3151,7 +3226,105 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
 
               {/* GitHub Details */}
               {sourceType === 'GITHUB' ? (
-                <div className="space-y-4 pt-4 border-t border-slate-100">
+                <div className="space-y-6 pt-4 border-t border-slate-100">
+                  {/* Status & Rebuild Action Bar */}
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 bg-white border border-slate-200 rounded-lg shadow-2xs">
+                        {service.buildStatus === 'cloning' || service.buildStatus === 'building' || isTriggeringRebuild ? (
+                          <RotateCw className="w-5 h-5 text-blue-600 animate-spin" />
+                        ) : service.buildStatus === 'success' ? (
+                          <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                        ) : service.buildStatus === 'failed' ? (
+                          <AlertCircle className="w-5 h-5 text-rose-600" />
+                        ) : (
+                          <GitBranch className="w-5 h-5 text-slate-500" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-900">Status de Compilação:</span>
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                              service.buildStatus === 'cloning'
+                                ? 'bg-amber-100 text-amber-800 border border-amber-200 animate-pulse'
+                                : service.buildStatus === 'building'
+                                ? 'bg-blue-100 text-blue-800 border border-blue-200 animate-pulse'
+                                : service.buildStatus === 'success'
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                : service.buildStatus === 'failed'
+                                ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                : 'bg-slate-100 text-slate-700 border border-slate-200'
+                            }`}
+                          >
+                            {service.buildStatus === 'cloning'
+                              ? 'Clonando repositório...'
+                              : service.buildStatus === 'building'
+                              ? 'Construindo imagem...'
+                              : service.buildStatus === 'success'
+                              ? 'Concluído com Sucesso'
+                              : service.buildStatus === 'failed'
+                              ? 'Falha na Compilação'
+                              : 'Pronto / Aguardando'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          {gitRepoUrl ? (
+                            <>
+                              Repositório: <code className="font-mono text-slate-700">{gitRepoUrl}</code> (branch <code className="font-mono text-slate-700">{gitBranch || 'main'}</code>)
+                            </>
+                          ) : (
+                            'Configure a URL do repositório abaixo para iniciar o pipeline.'
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-end sm:self-center">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          fetchBuildsHistory();
+                          if (onRefreshData) onRefreshData();
+                        }}
+                        className="p-2 text-slate-600 hover:text-slate-900 hover:bg-white border border-slate-200 rounded-lg transition-colors"
+                        title="Atualizar Status & Logs"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleTriggerManualBuild}
+                        disabled={
+                          isTriggeringRebuild ||
+                          service.buildStatus === 'cloning' ||
+                          service.buildStatus === 'building' ||
+                          !gitRepoUrl.trim()
+                        }
+                        className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors"
+                      >
+                        <RotateCw
+                          className={`w-3.5 h-3.5 ${
+                            isTriggeringRebuild ||
+                            service.buildStatus === 'cloning' ||
+                            service.buildStatus === 'building'
+                              ? 'animate-spin'
+                              : ''
+                          }`}
+                        />
+                        <span>
+                          {isTriggeringRebuild ||
+                          service.buildStatus === 'cloning' ||
+                          service.buildStatus === 'building'
+                            ? 'Compilando...'
+                            : 'Reconstruir do GitHub'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Git Configuration Fields */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="md:col-span-2">
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -3164,6 +3337,9 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                         placeholder="https://github.com/usuario/meu-projeto.git"
                         className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                       />
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        URL HTTPS pública ou privada do repositório no GitHub.
+                      </p>
                     </div>
 
                     <div>
@@ -3177,33 +3353,89 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                         placeholder="main ou master"
                         className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                       />
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Ramo monitorado para deploys automáticos.
+                      </p>
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Caminho do Dockerfile
+                      </label>
+                      <input
+                        type="text"
+                        value={dockerfilePath}
+                        onChange={(e) => setDockerfilePath(e.target.value)}
+                        placeholder="Dockerfile ou deploy/Dockerfile"
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                      />
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Caminho relativo do arquivo Dockerfile (padrão: <code className="font-mono">Dockerfile</code>).
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Contexto do Build (Root Directory)
+                      </label>
+                      <input
+                        type="text"
+                        value={buildContext}
+                        onChange={(e) => setBuildContext(e.target.value)}
+                        placeholder=". ou apps/backend"
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                      />
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Diretório enviado ao Docker daemon (útil para monorepos, padrão: <code className="font-mono">.</code>).
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* GitHub PAT Token */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Caminho do Dockerfile no Repositório
+                      Token GitHub (Personal Access Token - PAT)
                     </label>
-                    <input
-                      type="text"
-                      value={dockerfilePath}
-                      onChange={(e) => setDockerfilePath(e.target.value)}
-                      placeholder="Dockerfile ou path/to/Dockerfile"
-                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showGitToken ? 'text' : 'password'}
+                        value={gitToken}
+                        onChange={(e) => setGitToken(e.target.value)}
+                        placeholder="ghp_xxxxxxxxxxxxxxxxxxxx (obrigatório para repositórios privados)"
+                        className="w-full px-3 py-2 pr-10 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowGitToken(!showGitToken)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        title={showGitToken ? 'Ocultar token' : 'Exibir token'}
+                      >
+                        {showGitToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Necessário apenas para repositórios privados ou organizações. O token é mantido com segurança e mascarado nos logs de compilação.
+                    </p>
                   </div>
 
                   {/* Webhook integration panel */}
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-                    <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Webhook do GitHub para Deploy Automático</span>
-                    </h3>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Webhook do GitHub para Push-to-Deploy Automático</span>
+                      </h3>
+                      <span className="text-[10px] bg-blue-100 text-blue-800 font-semibold px-2 py-0.5 rounded-full">
+                        Event: push
+                      </span>
+                    </div>
                     <p className="text-[11px] text-slate-500">
                       Configure este webhook no seu repositório GitHub em <strong>Settings &gt; Webhooks &gt; Add webhook</strong>:
                     </p>
 
-                    <div className="space-y-2 font-mono text-xs">
+                    <div className="space-y-3 font-mono text-xs">
                       <div>
                         <span className="text-[10px] text-slate-400 uppercase font-sans font-semibold block">Payload URL</span>
                         <div className="flex items-center gap-2 mt-0.5">
@@ -3211,7 +3443,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                             type="text"
                             readOnly
                             value={`https://${mainDomain}/api/webhooks/github/${service.id}`}
-                            className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded text-slate-800 text-xs"
+                            className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded text-slate-800 text-xs select-all"
                           />
                           <button
                             type="button"
@@ -3231,13 +3463,13 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
 
                       {service.webhookSecret && (
                         <div>
-                          <span className="text-[10px] text-slate-400 uppercase font-sans font-semibold block">Secret (Segredo)</span>
+                          <span className="text-[10px] text-slate-400 uppercase font-sans font-semibold block">Secret (Segredo HMAC)</span>
                           <div className="flex items-center gap-2 mt-0.5">
                             <input
                               type="text"
                               readOnly
                               value={service.webhookSecret}
-                              className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded text-slate-800 text-xs"
+                              className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded text-slate-800 text-xs select-all"
                             />
                             <button
                               type="button"
@@ -3250,18 +3482,173 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                           </div>
                         </div>
                       )}
+
+                      <div className="text-[11px] font-sans text-slate-500 flex items-center gap-3 pt-1">
+                        <span><strong>Content type:</strong> application/json</span>
+                        <span>•</span>
+                        <span><strong>SSL verification:</strong> Enable</span>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Build Logs preview if available */}
-                  {service.buildLogs && (
-                    <div>
-                      <h4 className="text-xs font-semibold text-slate-700 mb-1">Últimos Logs de Compilação:</h4>
-                      <pre className="p-3 bg-slate-900 text-slate-200 rounded-lg text-[11px] font-mono whitespace-pre-wrap max-h-48 overflow-y-auto">
-                        {service.buildLogs}
+                  {/* Live Build Logs Terminal */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <Terminal className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Terminal de Logs da Compilação</span>
+                        {(service.buildStatus === 'cloning' || service.buildStatus === 'building' || isTriggeringRebuild) && (
+                          <span className="text-[10px] font-mono text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 flex items-center gap-1">
+                            <RotateCw className="w-2.5 h-2.5 animate-spin" /> Em tempo real
+                          </span>
+                        )}
+                      </h4>
+
+                      <button
+                        type="button"
+                        onClick={() => handleCopyClipboard(liveBuildLogs || service.buildLogs || '', 'Logs de Build')}
+                        disabled={!(liveBuildLogs || service.buildLogs)}
+                        className="px-2.5 py-1 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 rounded flex items-center gap-1 disabled:opacity-40"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>Copiar Logs</span>
+                      </button>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-950 overflow-hidden shadow-inner">
+                      <div className="flex items-center justify-between px-3.5 py-2 bg-slate-900 border-b border-slate-800 text-slate-400 text-[11px]">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80 inline-block" />
+                          <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80 inline-block" />
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80 inline-block" />
+                          <span className="font-mono text-slate-300 font-semibold ml-2">docker build output</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-slate-500">
+                          {gitBranch ? `branch: ${gitBranch}` : ''}
+                        </span>
+                      </div>
+                      <pre className="p-4 text-emerald-400 font-mono text-[11px] leading-relaxed whitespace-pre-wrap max-h-72 overflow-y-auto selection:bg-blue-600 selection:text-white">
+                        {liveBuildLogs || service.buildLogs || 'Nenhum log de compilação disponível ainda. Dispare um build acima ou realize um commit na branch para ver a execução.'}
                       </pre>
                     </div>
-                  )}
+                  </div>
+
+                  {/* Builds History Table */}
+                  <div className="space-y-2 pt-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Histórico de Builds Recentes</span>
+                        {buildsHistory.length > 0 && (
+                          <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-mono font-bold">
+                            {buildsHistory.length}
+                          </span>
+                        )}
+                      </h4>
+
+                      <button
+                        type="button"
+                        onClick={fetchBuildsHistory}
+                        disabled={isLoadingBuilds}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${isLoadingBuilds ? 'animate-spin' : ''}`} />
+                        <span>Atualizar</span>
+                      </button>
+                    </div>
+
+                    <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                          <tr>
+                            <th className="px-4 py-2.5">Status</th>
+                            <th className="px-4 py-2.5">Commit</th>
+                            <th className="px-4 py-2.5">Origem</th>
+                            <th className="px-4 py-2.5">Data/Hora</th>
+                            <th className="px-4 py-2.5">Duração</th>
+                            <th className="px-4 py-2.5 text-right">Ação</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                          {buildsHistory.length > 0 ? (
+                            buildsHistory.map((b) => {
+                              const started = b.startedAt ? new Date(b.startedAt) : null;
+                              const finished = b.finishedAt ? new Date(b.finishedAt) : null;
+                              let durationStr = '-';
+                              if (started && finished) {
+                                const diffSec = Math.round((finished.getTime() - started.getTime()) / 1000);
+                                durationStr = diffSec >= 60 ? `${Math.floor(diffSec / 60)}m ${diffSec % 60}s` : `${diffSec}s`;
+                              } else if (started && (b.status === 'building' || b.status === 'cloning')) {
+                                durationStr = 'Em andamento...';
+                              }
+
+                              return (
+                                <tr key={b.id} className="hover:bg-slate-50 transition-colors">
+                                  <td className="px-4 py-3">
+                                    <span
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-sans ${
+                                        b.status === 'success'
+                                          ? 'bg-emerald-100 text-emerald-800'
+                                          : b.status === 'failed'
+                                          ? 'bg-rose-100 text-rose-800'
+                                          : 'bg-blue-100 text-blue-800'
+                                      }`}
+                                    >
+                                      {b.status === 'success' ? (
+                                        <CheckCircle2 className="w-3 h-3" />
+                                      ) : b.status === 'failed' ? (
+                                        <AlertCircle className="w-3 h-3" />
+                                      ) : (
+                                        <RotateCw className="w-3 h-3 animate-spin" />
+                                      )}
+                                      <span className="capitalize">{b.status}</span>
+                                    </span>
+                                  </td>
+
+                                  <td className="px-4 py-3 text-slate-800 font-sans max-w-xs truncate" title={b.gitCommit || '-'}>
+                                    <div className="flex items-center gap-1 font-mono text-[11px] text-slate-700">
+                                      <GitCommit className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                      <span className="truncate">{b.gitCommit || 'Manual Trigger'}</span>
+                                    </div>
+                                  </td>
+
+                                  <td className="px-4 py-3 font-sans text-slate-600">
+                                    <span className="capitalize text-[10px] px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200">
+                                      {b.trigger || 'manual'}
+                                    </span>
+                                  </td>
+
+                                  <td className="px-4 py-3 text-slate-600">
+                                    {started ? started.toLocaleString('pt-BR') : '-'}
+                                  </td>
+
+                                  <td className="px-4 py-3 text-slate-600">
+                                    {durationStr}
+                                  </td>
+
+                                  <td className="px-4 py-3 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedBuildForLogs(b)}
+                                      className="px-2 py-1 text-[11px] font-sans font-semibold text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
+                                    >
+                                      Ver Logs
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          ) : (
+                            <tr>
+                              <td colSpan={6} className="px-4 py-6 text-center text-slate-400 font-sans">
+                                {isLoadingBuilds ? 'Carregando histórico de builds...' : 'Nenhum build registrado ainda neste serviço.'}
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="pt-4 border-t border-slate-100">
@@ -4392,6 +4779,81 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                   Fechar
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Visualizar Logs de Build Anterior */}
+      {selectedBuildForLogs && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-4xl shadow-2xl flex flex-col overflow-hidden max-h-[85vh]">
+            <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-950">
+              <div className="flex items-center gap-2">
+                <Terminal className="w-4 h-4 text-emerald-400" />
+                <span className="font-bold text-xs text-white">
+                  Logs da Compilação #{selectedBuildForLogs.id.slice(-8)}
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    selectedBuildForLogs.status === 'success'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      : selectedBuildForLogs.status === 'failed'
+                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                      : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                  }`}
+                >
+                  {selectedBuildForLogs.status}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCopyClipboard(selectedBuildForLogs.logs || '', 'Logs de Build')}
+                  className="px-2.5 py-1 text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1 transition-colors"
+                  title="Copiar todos os logs"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copiar</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedBuildForLogs(null)}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="px-5 py-2.5 bg-slate-900/80 border-b border-slate-800 flex flex-wrap items-center gap-x-6 gap-y-1 text-[11px] text-slate-400 font-mono">
+              {selectedBuildForLogs.gitCommit && (
+                <div className="flex items-center gap-1.5 text-slate-300">
+                  <GitCommit className="w-3.5 h-3.5 text-blue-400" />
+                  <span>{selectedBuildForLogs.gitCommit}</span>
+                </div>
+              )}
+              {selectedBuildForLogs.startedAt && (
+                <div>Início: {new Date(selectedBuildForLogs.startedAt).toLocaleString('pt-BR')}</div>
+              )}
+              {selectedBuildForLogs.trigger && (
+                <div>Origem: <span className="text-slate-300 uppercase">{selectedBuildForLogs.trigger}</span></div>
+              )}
+            </div>
+
+            <pre className="p-4 text-emerald-400 font-mono text-[11px] leading-relaxed whitespace-pre-wrap overflow-y-auto flex-1 selection:bg-blue-600 selection:text-white">
+              {selectedBuildForLogs.logs || 'Nenhum log gravado para esta compilação.'}
+            </pre>
+
+            <div className="px-5 py-3 bg-slate-950 border-t border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedBuildForLogs(null)}
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition-colors"
+              >
+                Fechar
+              </button>
             </div>
           </div>
         </div>

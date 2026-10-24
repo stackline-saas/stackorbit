@@ -28,7 +28,7 @@ export async function createDockerClient(): Promise<Docker> {
       delete process.env.DOCKER_HOST;
 
       bridgeServer = net.createServer((socket) => {
-        const child = spawn('docker', ['system', 'dial-stdio'], {
+        const child = spawn('docker', ['-H', remoteDockerHost, 'system', 'dial-stdio'], {
           env: { ...process.env, DOCKER_HOST: remoteDockerHost },
           windowsHide: true,
         });

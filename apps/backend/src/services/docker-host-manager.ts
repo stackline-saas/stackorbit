@@ -164,6 +164,7 @@ export class DockerHostManager {
     // Se já existir uma bridge ativa para esse host, reutiliza
     if (this.sshBridges.has(hostId)) {
       const bridge = this.sshBridges.get(hostId)!;
+      delete process.env.DOCKER_HOST;
       return new Docker({ host: '127.0.0.1', port: bridge.port });
     }
 
@@ -180,9 +181,13 @@ export class DockerHostManager {
     }
 
     const bridgeServer = net.createServer((socket) => {
-      const child = spawn('docker', ['system', 'dial-stdio'], {
+      const child = spawn('docker', ['-H', endpointUrl, 'system', 'dial-stdio'], {
         env: sshEnv,
         windowsHide: true,
+      });
+
+      child.stderr.on('data', (d) => {
+        console.error(`[DockerSSHBridge ${hostId} STDERR]:`, d.toString().trim());
       });
 
       socket.pipe(child.stdin);
@@ -207,6 +212,7 @@ export class DockerHostManager {
     });
 
     console.log(`🔌 [DockerHostManager] SSH Bridge ativo para Host "${hostId}" na porta 127.0.0.1:${bridgePort} (${endpointUrl})`);
+    delete process.env.DOCKER_HOST;
     return new Docker({ host: '127.0.0.1', port: bridgePort });
   }
 
@@ -263,7 +269,7 @@ export class DockerHostManager {
       }
 
       let testClient: Docker;
-      const tempId = `test-${Date.now()}`;
+      const tempId = hostData.hostId || `test-${Date.now()}`;
 
       if (hostData.type === 'SSH') {
         testClient = await this.createSSHClient(tempId, hostData.endpointUrl, hostData.sshKey);
@@ -317,6 +323,7 @@ export class DockerHostManager {
     }
 
     const result = await this.testConnection({
+      hostId: host.id,
       type: host.type,
       endpointUrl: host.endpointUrl,
       sshKey: host.sshKey,

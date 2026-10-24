@@ -13,12 +13,14 @@ import {
   CheckSquare,
   Settings,
   LogOut,
-  ExternalLink,
   FolderGit2,
   HardDrive,
+  Crown,
+  X,
+  Layers,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.tsx';
-import type { ActiveTab } from '../types/index.ts';
+import type { ActiveTab, Project, DockerHost } from '../types/index.ts';
 export type { ActiveTab };
 
 interface SidebarProps {
@@ -27,6 +29,10 @@ interface SidebarProps {
   servicesCount: number;
   domainsCount: number;
   dockerConnected: boolean;
+  projects?: Project[];
+  hosts?: DockerHost[];
+  selectedProjectId?: string | null;
+  onSelectProject?: (projectId: string | null) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -35,19 +41,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
   servicesCount,
   domainsCount,
   dockerConnected,
+  projects = [],
+  hosts = [],
+  selectedProjectId,
+  onSelectProject,
 }) => {
   const { user, logout } = useAuth();
   const location = useLocation();
   const pathname = location.pathname;
 
-  const navigationItems = [
+  const selectedProject = projects.find((p) => p.id === selectedProjectId);
+
+  // 1. Itens Globais e Comuns a todos os projetos
+  const globalNavigationItems = [
     { id: 'dashboard' as ActiveTab, path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'projects' as ActiveTab, path: '/projects', label: 'Projetos', icon: FolderGit2 },
-    { id: 'hosts' as ActiveTab, path: '/hosts', label: 'Servidores', icon: HardDrive },
-    { id: 'services' as ActiveTab, path: '/services', label: 'Serviços', icon: Server, count: servicesCount },
-    { id: 'domains' as ActiveTab, path: '/domains', label: 'Domínios', icon: Globe, count: domainsCount },
-    { id: 'default-service' as ActiveTab, path: '/default-service', label: 'Serviço Padrão', icon: Compass },
-    { id: 'containers' as ActiveTab, path: '/containers', label: 'Containers', icon: Boxes },
+    { id: 'projects' as ActiveTab, path: '/projects', label: 'Projetos', icon: FolderGit2, count: projects.length },
+    { id: 'hosts' as ActiveTab, path: '/hosts', label: 'Servidores & Nós', icon: HardDrive, count: hosts.length },
     { id: 'integrations' as ActiveTab, path: '/integrations', label: 'Integrações Git', icon: GitBranch },
     { id: 'traefik' as ActiveTab, path: '/traefik', label: 'Traefik & Proxy', icon: Route },
     { id: 'cloudflare' as ActiveTab, path: '/cloudflare', label: 'Cloudflare & SSL', icon: ShieldCheck },
@@ -56,74 +65,237 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'settings' as ActiveTab, path: '/settings', label: 'Configurações', icon: Settings },
   ];
 
-  const checkIsActive = (item: (typeof navigationItems)[0]) => {
-    if (item.path === '/dashboard') {
+  // 2. Itens Escopados ao Projeto Selecionado (ou consolidados)
+  const projectNavigationItems = [
+    {
+      id: 'services' as ActiveTab,
+      path: '/services',
+      label: selectedProject ? 'Serviços do Projeto' : 'Serviços',
+      icon: Server,
+      count: servicesCount,
+    },
+    {
+      id: 'domains' as ActiveTab,
+      path: '/domains',
+      label: selectedProject ? 'Domínios do Projeto' : 'Domínios',
+      icon: Globe,
+      count: domainsCount,
+    },
+    {
+      id: 'containers' as ActiveTab,
+      path: '/containers',
+      label: selectedProject ? 'Containers do Projeto' : 'Containers',
+      icon: Boxes,
+    },
+    {
+      id: 'default-service' as ActiveTab,
+      path: '/default-service',
+      label: 'Serviço Padrão (Fallback)',
+      icon: Compass,
+    },
+  ];
+
+  const checkIsActive = (path: string) => {
+    if (path === '/dashboard') {
       return pathname === '/' || pathname === '/dashboard';
     }
-    return pathname.startsWith(item.path);
+    return pathname.startsWith(path);
+  };
+
+  const renderNavLink = (item: {
+    id: ActiveTab;
+    path: string;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    count?: number;
+  }) => {
+    const Icon = item.icon;
+    const isActive = checkIsActive(item.path);
+    return (
+      <Link
+        key={item.id}
+        to={item.path}
+        onClick={() => onSelectTab && onSelectTab(item.id)}
+        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+          isActive
+            ? 'bg-blue-600 text-white font-semibold shadow-xs'
+            : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+        }`}
+      >
+        <div className="flex items-center gap-2.5 truncate">
+          <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+          <span className="truncate">{item.label}</span>
+        </div>
+        {item.count !== undefined && (
+          <span
+            className={`text-[11px] px-1.5 py-0.2 rounded font-mono tabular-nums ${
+              isActive ? 'bg-blue-700 text-white' : 'bg-slate-800 text-slate-400'
+            }`}
+          >
+            {item.count}
+          </span>
+        )}
+      </Link>
+    );
   };
 
   return (
     <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 border-r border-slate-800 select-none">
       {/* Brand Header */}
-      <div className="p-5 border-b border-slate-800 flex items-center justify-between">
+      <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
         <Link to="/dashboard" className="flex items-center gap-2 group">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-sm tracking-tighter group-hover:bg-blue-500 transition-colors">
+          <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-sm tracking-tighter group-hover:bg-blue-500 transition-colors shadow-xs">
             DM
           </div>
           <div>
             <h1 className="text-sm font-bold text-white tracking-tight whitespace-nowrap group-hover:text-blue-400 transition-colors">
               Docker Domain
             </h1>
-            <p className="text-[11px] text-slate-400">Traefik + Cloudflare</p>
+            <p className="text-[10px] text-slate-400">Multi-Host & Multi-Projeto</p>
           </div>
         </Link>
       </div>
 
       {/* Engine Status Bar */}
-      <div className="px-5 py-2.5 bg-slate-950/60 border-b border-slate-800/80 flex items-center justify-between text-[11px]">
+      <div className="px-4 py-2 bg-slate-950/70 border-b border-slate-800/80 flex items-center justify-between text-[11px]">
         <span className="text-slate-400">Docker Engine</span>
-        <span className="font-mono text-emerald-400 font-medium">
-          {dockerConnected ? 'Conectado' : 'Desconectado'}
+        <span className="font-mono text-emerald-400 font-medium flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span>{dockerConnected ? 'Conectado' : 'Desconectado'}</span>
         </span>
       </div>
 
-      {/* Nav List */}
-      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-        {navigationItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = checkIsActive(item);
-          return (
-            <Link
-              key={item.id}
-              to={item.path}
-              onClick={() => onSelectTab && onSelectTab(item.id)}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-xs font-medium transition-colors ${
-                isActive
-                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5 truncate">
-                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                <span className="truncate">{item.label}</span>
-              </div>
-              {item.count !== undefined && (
-                <span
-                  className={`text-[11px] px-1.5 py-0.2 rounded font-mono tabular-nums ${
-                    isActive ? 'bg-blue-700 text-white' : 'bg-slate-800 text-slate-400'
+      {/* Nav List com Divisão Visível */}
+      <nav className="flex-1 p-2.5 space-y-3 overflow-y-auto">
+        {/* PARTE 1: GERAL / COMUM ENTRE TODAS */}
+        <div>
+          <div className="px-2.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Administração Global
+          </div>
+          <div className="space-y-0.5">
+            {globalNavigationItems.map(renderNavLink)}
+          </div>
+        </div>
+
+        {/* PARTE 2: SEPARAÇÃO E PROJETO ATIVO */}
+        <div className="pt-2 border-t border-slate-800">
+          <div className="flex items-center justify-between px-2.5 pb-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${selectedProject ? 'bg-blue-500 animate-pulse' : 'bg-slate-500'}`} />
+              <span>{selectedProject ? 'Projeto Ativo' : 'Recursos por Projeto'}</span>
+            </span>
+
+            {selectedProject && (
+              <button
+                type="button"
+                onClick={() => onSelectProject && onSelectProject(null)}
+                className="text-[10px] text-slate-400 hover:text-white hover:underline flex items-center gap-0.5 transition-colors"
+                title="Limpar filtro e visualizar todos os projetos"
+              >
+                <X className="w-3 h-3" />
+                <span>Ver Todos</span>
+              </button>
+            )}
+          </div>
+
+          {/* Card em Destaque do Projeto Selecionado */}
+          {selectedProject ? (
+            <div className="mx-1 mb-2 p-2.5 rounded-xl bg-gradient-to-b from-slate-800/90 to-slate-850 border border-blue-500/40 shadow-xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <div
+                  className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                    selectedProject.type === 'SWARM'
+                      ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                      : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
                   }`}
                 >
-                  {item.count}
-                </span>
+                  {selectedProject.type === 'SWARM' ? (
+                    <Crown className="w-4 h-4 text-purple-400" />
+                  ) : (
+                    <FolderGit2 className="w-4 h-4 text-blue-400" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="text-xs font-bold text-white truncate" title={selectedProject.name}>
+                    {selectedProject.name}
+                  </h4>
+                  <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                    <span
+                      className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${
+                        selectedProject.type === 'SWARM'
+                          ? 'bg-purple-900/50 text-purple-300 border-purple-700/50'
+                          : 'bg-blue-900/50 text-blue-300 border-blue-700/50'
+                      }`}
+                    >
+                      {selectedProject.type === 'SWARM' ? 'Swarm' : 'Standalone'}
+                    </span>
+                    {selectedProject.isDefault && (
+                      <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-amber-900/50 text-amber-300 border border-amber-700/50">
+                        Padrão
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Seletor rápido para alternar projetos diretamente pelo menu lateral */}
+              {projects.length > 1 && (
+                <div className="mt-2 pt-2 border-t border-slate-700/60">
+                  <select
+                    value={selectedProject.id}
+                    onChange={(e) => onSelectProject && onSelectProject(e.target.value || null)}
+                    className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-md text-[11px] text-slate-300 px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                  >
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        Alternar: {p.name} ({p.type})
+                      </option>
+                    ))}
+                  </select>
+                </div>
               )}
-            </Link>
-          );
-        })}
+            </div>
+          ) : (
+            <div className="mx-1 mb-2 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 text-xs">
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Visão Consolidada</span>
+                </span>
+                <span className="text-[9px] font-medium px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">
+                  Geral
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 leading-tight mb-2">
+                Exibindo todos os serviços de todos os projetos.
+              </p>
+
+              {projects.length > 0 && (
+                <select
+                  value=""
+                  onChange={(e) => onSelectProject && onSelectProject(e.target.value || null)}
+                  className="w-full bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-md text-[11px] text-slate-400 px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                >
+                  <option value="">Filtrar por projeto...</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.type})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+
+          {/* Links restritos ao projeto ativo */}
+          <div className="space-y-0.5">
+            {projectNavigationItems.map(renderNavLink)}
+          </div>
+        </div>
       </nav>
 
       {/* Cloudflare Quick Note */}
-      <div className="mx-3 my-2 p-2.5 rounded bg-slate-950/80 border border-slate-800 text-[11px] text-slate-400 leading-relaxed">
+      <div className="mx-3 my-2 p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-[11px] text-slate-400 leading-relaxed">
         <div className="flex items-center gap-1.5 text-amber-400 font-medium mb-1">
           <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
           <span>SSL Gerenciado</span>
@@ -145,7 +317,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
           <button
             onClick={logout}
-            className="p-1.5 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-800 transition-colors shrink-0"
+            className="p-1.5 text-slate-400 hover:text-rose-400 rounded-md hover:bg-slate-800 transition-colors shrink-0"
             title="Encerrar Sessão"
           >
             <LogOut className="w-4 h-4" />

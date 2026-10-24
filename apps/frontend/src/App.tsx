@@ -636,15 +636,24 @@ function MainApp() {
     ? services.filter((s) => s.projectId === selectedProjectId)
     : services;
 
+  const displayedServiceIds = new Set(displayedServices.map((s) => s.id));
+  const displayedDomains = selectedProjectId
+    ? domains.filter((d) => displayedServiceIds.has(d.serviceId))
+    : domains;
+
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
       {/* Sidebar Navigation */}
       <Sidebar
         currentTab={currentTab}
         onSelectTab={handleNavigateTab}
-        servicesCount={services.length}
-        domainsCount={domains.length}
+        servicesCount={displayedServices.length}
+        domainsCount={displayedDomains.length}
         dockerConnected={stats?.dockerConnected ?? true}
+        projects={projects}
+        hosts={hosts}
+        selectedProjectId={selectedProjectId}
+        onSelectProject={handleSelectProject}
       />
 
       {/* Main Viewport */}
@@ -812,8 +821,8 @@ function MainApp() {
                 path="/domains"
                 element={
                   <DomainsView
-                    domains={domains}
-                    services={services}
+                    domains={displayedDomains}
+                    services={displayedServices}
                     mainDomain={stats?.mainDomain || 'bla.com.br'}
                     onOpenCreate={() => {
                       setEditingDomain(null);

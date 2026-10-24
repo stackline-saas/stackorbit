@@ -46,6 +46,38 @@ export function parseDomainTargets(
   return [{ container: trimmed, port: targetPort || defaultPort }];
 }
 
+export function resolveTargetUrl(
+  target: TargetServer,
+  host?: { endpointUrl?: string; type?: string; isDefault?: boolean } | null
+): string {
+  if (target.container.startsWith('http://') || target.container.startsWith('https://')) {
+    return target.container;
+  }
+
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(target.container) || target.container.includes('.')) {
+    return `http://${target.container}:${target.port}`;
+  }
+
+  if (host && !host.isDefault && host.endpointUrl) {
+    let hostAddress: string | null = null;
+    try {
+      if (host.endpointUrl.startsWith('ssh://')) {
+        const u = new URL(host.endpointUrl);
+        hostAddress = u.hostname;
+      } else if (host.endpointUrl.startsWith('tcp://') || host.endpointUrl.startsWith('http://')) {
+        const u = new URL(host.endpointUrl.replace('tcp://', 'http://'));
+        hostAddress = u.hostname;
+      }
+    } catch {}
+
+    if (hostAddress && hostAddress !== '127.0.0.1' && hostAddress !== 'localhost') {
+      return `http://${hostAddress}:${target.port}`;
+    }
+  }
+
+  return `http://${target.container}:${target.port}`;
+}
+
 export class TraefikService {
   private configPath: string;
 
@@ -62,6 +94,9 @@ export class TraefikService {
       include: {
         domains: {
           where: { isActive: true },
+        },
+        dockerHost: {
+          select: { id: true, name: true, type: true, endpointUrl: true, isDefault: true },
         },
       },
     });
@@ -83,7 +118,7 @@ export class TraefikService {
 
         httpServices[traefikServiceName] = {
           loadBalancer: {
-            servers: targets.map((t) => ({ url: `http://${t.container}:${t.port}` })),
+            servers: targets.map((t) => ({ url: resolveTargetUrl(t, service.dockerHost) })),
             passHostHeader: true,
             ...(domain.healthCheckPath
               ? {
@@ -115,7 +150,10 @@ export class TraefikService {
         loadBalancer: {
           servers: [
             {
-              url: `http://${defaultService.containerName}:${defaultService.internalPort}`,
+              url: resolveTargetUrl(
+                { container: defaultService.containerName, port: defaultService.internalPort },
+                defaultService.dockerHost
+              ),
             },
           ],
           passHostHeader: true,

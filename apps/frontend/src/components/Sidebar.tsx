@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -16,6 +16,9 @@ import {
   FolderGit2,
   HardDrive,
   Crown,
+  ChevronsUpDown,
+  Check,
+  Plus,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.tsx';
 import type { ActiveTab, Project, DockerHost } from '../types/index.ts';
@@ -48,7 +51,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const location = useLocation();
   const pathname = location.pathname;
 
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
+
+  // Fecha o dropdown ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // 1. Itens Escopados ao Projeto Selecionado
   const projectNavigationItems = [
@@ -78,19 +95,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Serviço Padrão (Fallback)',
       icon: Compass,
     },
+    {
+      id: 'integrations' as ActiveTab,
+      path: '/integrations',
+      label: 'Integrações Git',
+      icon: GitBranch,
+    },
+    {
+      id: 'traefik' as ActiveTab,
+      path: '/traefik',
+      label: 'Traefik & Proxy',
+      icon: Route,
+    },
+    {
+      id: 'cloudflare' as ActiveTab,
+      path: '/cloudflare',
+      label: 'Cloudflare & SSL',
+      icon: ShieldCheck,
+    },
+    {
+      id: 'settings' as ActiveTab,
+      path: '/settings',
+      label: 'Configurações',
+      icon: Settings,
+    },
   ];
 
-  // 2. Itens Globais e Comuns a todos os projetos
+  // 2. Itens Globais e Comuns a todos os projetos (Administração Global)
   const globalNavigationItems = [
     { id: 'dashboard' as ActiveTab, path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'projects' as ActiveTab, path: '/projects', label: 'Projetos', icon: FolderGit2, count: projects.length },
     { id: 'hosts' as ActiveTab, path: '/hosts', label: 'Servidores & Nós', icon: HardDrive, count: hosts.length },
-    { id: 'integrations' as ActiveTab, path: '/integrations', label: 'Integrações Git', icon: GitBranch },
-    { id: 'traefik' as ActiveTab, path: '/traefik', label: 'Traefik & Proxy', icon: Route },
-    { id: 'cloudflare' as ActiveTab, path: '/cloudflare', label: 'Cloudflare & SSL', icon: ShieldCheck },
     { id: 'audit' as ActiveTab, path: '/audit', label: 'Auditoria & Logs', icon: FileText },
     { id: 'tests' as ActiveTab, path: '/tests', label: 'Testes do Sistema', icon: CheckSquare },
-    { id: 'settings' as ActiveTab, path: '/settings', label: 'Configurações', icon: Settings },
   ];
 
   const checkIsActive = (path: string) => {
@@ -165,7 +202,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Nav List com Ordem: Projeto Ativo EM CIMA, Global EM BAIXO */}
       <nav className="flex-1 p-2.5 space-y-3 overflow-y-auto">
-        {/* PARTE 1 (EM CIMA): PROJETO ATIVO & RECURSOS DO PROJETO */}
+        {/* PARTE 1 (EM CIMA): PROJETO ATIVO & SEUS RECURSOS */}
         <div>
           <div className="flex items-center justify-between px-2.5 pb-1.5">
             <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
@@ -174,94 +211,140 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
           </div>
 
-          {selectedProject ? (
-            <>
-              {/* Card em Destaque do Projeto Selecionado */}
-              <div className="mx-1 mb-2 p-2.5 rounded-xl bg-gradient-to-b from-slate-850 to-slate-900 border border-blue-500/40 shadow-xs">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                      selectedProject.type === 'SWARM'
-                        ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
-                        : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                    }`}
-                  >
-                    {selectedProject.type === 'SWARM' ? (
-                      <Crown className="w-4 h-4 text-purple-400" />
-                    ) : (
-                      <FolderGit2 className="w-4 h-4 text-blue-400" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <h4 className="text-xs font-bold text-white truncate" title={selectedProject.name}>
-                      {selectedProject.name}
-                    </h4>
-                    <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                      <span
-                        className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${
-                          selectedProject.type === 'SWARM'
-                            ? 'bg-purple-900/50 text-purple-300 border-purple-700/50'
-                            : 'bg-blue-900/50 text-blue-300 border-blue-700/50'
-                        }`}
-                      >
-                        {selectedProject.type === 'SWARM' ? 'Swarm' : 'Standalone'}
-                      </span>
-                      {selectedProject.isDefault && (
-                        <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-amber-900/50 text-amber-300 border border-amber-700/50">
-                          Padrão
-                        </span>
+          {/* Seletor & Switcher de Projeto Interativo */}
+          <div className="relative mb-2" ref={dropdownRef}>
+            {selectedProject ? (
+              <button
+                type="button"
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="w-full text-left p-2.5 rounded-xl bg-gradient-to-b from-slate-850 to-slate-900 border border-blue-500/40 hover:border-blue-400/70 transition-all shadow-xs group"
+                title="Clique para alternar de projeto"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div
+                      className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                        selectedProject.type === 'SWARM'
+                          ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                          : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                      }`}
+                    >
+                      {selectedProject.type === 'SWARM' ? (
+                        <Crown className="w-4 h-4 text-purple-400" />
+                      ) : (
+                        <FolderGit2 className="w-4 h-4 text-blue-400" />
                       )}
                     </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="text-xs font-bold text-white truncate group-hover:text-blue-300 transition-colors">
+                        {selectedProject.name}
+                      </h4>
+                      <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${
+                            selectedProject.type === 'SWARM'
+                              ? 'bg-purple-900/50 text-purple-300 border-purple-700/50'
+                              : 'bg-blue-900/50 text-blue-300 border-blue-700/50'
+                          }`}
+                        >
+                          {selectedProject.type === 'SWARM' ? 'Swarm' : 'Standalone'}
+                        </span>
+                        {selectedProject.isDefault && (
+                          <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-amber-900/50 text-amber-300 border border-amber-700/50">
+                            Padrão
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <ChevronsUpDown className="w-4 h-4 text-slate-400 group-hover:text-white shrink-0 transition-colors" />
+                </div>
+              </button>
+            ) : (
+              /* Se NÃO tiver projeto selecionado */
+              <button
+                type="button"
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="w-full text-left p-3 rounded-xl bg-slate-950/80 border border-dashed border-slate-700 hover:border-blue-500 transition-all group flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <FolderGit2 className="w-5 h-5 text-slate-400 group-hover:text-blue-400 transition-colors shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-300 group-hover:text-white transition-colors">
+                      Selecionar um Projeto
+                    </p>
+                    <p className="text-[10px] text-slate-500">Clique para escolher o projeto</p>
                   </div>
                 </div>
+                <ChevronsUpDown className="w-4 h-4 text-slate-400 group-hover:text-white shrink-0" />
+              </button>
+            )}
 
-                {/* Seletor rápido para alternar projetos diretamente pelo menu lateral */}
-                {projects.length > 1 && (
-                  <div className="mt-2 pt-2 border-t border-slate-750">
-                    <select
-                      value={selectedProject.id}
-                      onChange={(e) => onSelectProject && onSelectProject(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 hover:border-slate-600 rounded-md text-[11px] text-slate-300 px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer"
-                    >
-                      {projects.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          Alternar: {p.name} ({p.type})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
+            {/* Menu Dropdown de Seleção de Projeto */}
+            {isDropdownOpen && (
+              <div className="absolute top-full left-0 right-0 mt-1.5 bg-slate-950 border border-slate-700 rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in zoom-in-95 max-h-64 overflow-y-auto">
+                <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Projetos Disponíveis
+                </div>
 
-              {/* Menu exclusivo do projeto ativo */}
-              <div className="space-y-0.5">
-                {projectNavigationItems.map(renderNavLink)}
+                <div className="divide-y divide-slate-850">
+                  {projects.map((p) => {
+                    const isSelected = selectedProject?.id === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          onSelectProject && onSelectProject(p.id);
+                          setIsDropdownOpen(false);
+                        }}
+                        className={`w-full px-3 py-2 text-left flex items-center justify-between text-xs transition-colors hover:bg-slate-850 ${
+                          isSelected ? 'bg-slate-800/80 text-white font-semibold' : 'text-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          {p.type === 'SWARM' ? (
+                            <Crown className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                          ) : (
+                            <FolderGit2 className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                          )}
+                          <span className="truncate">{p.name}</span>
+                        </div>
+
+                        {isSelected && <Check className="w-4 h-4 text-emerald-400 shrink-0" />}
+                      </button>
+                    );
+                  })}
+
+                  {projects.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-slate-500 italic">
+                      Nenhum projeto cadastrado
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t border-slate-800 mt-1 pt-1 px-1.5">
+                  <Link
+                    to="/projects"
+                    onClick={() => {
+                      onSelectTab && onSelectTab('projects');
+                      setIsDropdownOpen(false);
+                    }}
+                    className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold text-blue-400 hover:text-blue-300 hover:bg-slate-850 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Gerenciar / Criar Projetos</span>
+                  </Link>
+                </div>
               </div>
-            </>
-          ) : (
-            /* Se NÃO tiver projeto selecionado, NÃO aparece o menu dele */
-            <div className="mx-1 mb-2 p-3 rounded-xl bg-slate-950/60 border border-dashed border-slate-800 text-center">
-              <FolderGit2 className="w-5 h-5 text-slate-500 mx-auto mb-1.5" />
-              <p className="text-[11px] font-semibold text-slate-300">Nenhum projeto selecionado</p>
-              <p className="text-[10px] text-slate-500 mt-0.5 mb-2">
-                Selecione um projeto para exibir seus serviços e domínios.
-              </p>
-              {projects.length > 0 && (
-                <select
-                  value=""
-                  onChange={(e) => onSelectProject && onSelectProject(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 hover:border-slate-600 rounded-md text-[11px] text-slate-300 px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer"
-                >
-                  <option value="" disabled>
-                    Escolha um projeto...
-                  </option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.type})
-                    </option>
-                  ))}
-                </select>
-              )}
+            )}
+          </div>
+
+          {/* Menu dos recursos: estritamente renderizado APENAS quando há um projeto selecionado */}
+          {selectedProject && (
+            <div className="space-y-0.5">
+              {projectNavigationItems.map(renderNavLink)}
             </div>
           )}
         </div>

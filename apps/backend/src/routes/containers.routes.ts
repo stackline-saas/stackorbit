@@ -1,16 +1,37 @@
 import { Router } from 'express';
 import { dockerService } from '../services/docker.service.js';
-import { logAudit } from '../db.js';
+import { prisma, logAudit } from '../db.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.middleware.js';
 
 const router = Router();
 
 // 1. List all containers
 router.get('/', requireAuth, async (req, res) => {
+  const projectId = req.query.projectId as string | undefined;
   try {
-    const containers = await dockerService.listContainers();
+    let containers = await dockerService.listContainers();
     const status = await dockerService.getStatus();
-    return res.json({ containers, status });
+
+    if (projectId) {
+      // Find containers belonging to this project's services
+      const projectServices = await prisma.service.findMany({
+        where: { projectId },
+        select: { containerName: true },
+      });
+      const allowedNames = new Set(
+        projectServices.map((s: { containerName: string }) => s.containerName.toLowerCase().replace(/^[\/_]/, ''))
+      );
+
+      containers = containers.filter((c: any) => {
+        const cleanName = c.name.toLowerCase().replace(/^[\/_]/, '');
+        return (
+          allowedNames.has(cleanName) ||
+          projectServices.some((s: { containerName: string }) => cleanName.includes(s.containerName.toLowerCase()))
+        );
+      });
+    }
+
+    return res.json({ containers, status, projectId });
   } catch (err: any) {
     return res.status(500).json({ error: `Erro ao consultar Docker Engine: ${err.message}` });
   }

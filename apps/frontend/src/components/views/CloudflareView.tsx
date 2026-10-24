@@ -12,7 +12,12 @@ import {
 } from 'lucide-react';
 import { useNotification } from '../../context/NotificationContext.tsx';
 
-export const CloudflareView: React.FC = () => {
+interface CloudflareViewProps {
+  projectId?: string | null;
+  projectName?: string;
+}
+
+export const CloudflareView: React.FC<CloudflareViewProps> = ({ projectId, projectName }) => {
   const { showNotification } = useNotification();
   const [data, setData] = useState<any>(null);
   const [mainDomain, setMainDomain] = useState('bla.com.br');
@@ -24,7 +29,10 @@ export const CloudflareView: React.FC = () => {
 
   const loadCloudflareData = async () => {
     try {
-      const res = await fetch('/api/cloudflare', {
+      const url = projectId
+        ? `/api/cloudflare?projectId=${encodeURIComponent(projectId)}`
+        : '/api/cloudflare';
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${localStorage.getItem('dm_auth_token') || ''}` },
       });
       if (res.ok) {
@@ -33,7 +41,7 @@ export const CloudflareView: React.FC = () => {
         setMainDomain(json.mainDomain);
         setOriginServerIp(json.originServerIp);
         setOriginHttpsPort(json.originHttpsPort);
-        setSslMode(json.connectionMode);
+        setSslMode(json.cloudflareSslMode || json.connectionMode || 'Full (strict)');
       }
     } catch (err) {
       console.error('Falha ao carregar configurações do Cloudflare:', err);
@@ -42,7 +50,7 @@ export const CloudflareView: React.FC = () => {
 
   useEffect(() => {
     loadCloudflareData();
-  }, []);
+  }, [projectId]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,6 +63,7 @@ export const CloudflareView: React.FC = () => {
           Authorization: `Bearer ${localStorage.getItem('dm_auth_token') || ''}`,
         },
         body: JSON.stringify({
+          projectId: projectId || undefined,
           mainDomain,
           originServerIp,
           originHttpsPort,
@@ -62,7 +71,13 @@ export const CloudflareView: React.FC = () => {
         }),
       });
       if (res.ok) {
-        showNotification('success', 'Configurações Salvas', 'Parâmetros do Cloudflare e servidor de origem atualizados.');
+        showNotification(
+          'success',
+          'Configurações Salvas',
+          projectName
+            ? `Parâmetros do Cloudflare salvos para o projeto "${projectName}".`
+            : 'Parâmetros do Cloudflare e servidor de origem atualizados.'
+        );
       } else {
         showNotification('error', 'Erro', 'Falha ao salvar configurações.');
       }
@@ -92,6 +107,11 @@ export const CloudflareView: React.FC = () => {
               <h3 className="text-sm font-bold text-slate-900">
                 Arquitetura HTTPS: Cloudflare Proxy + Origin CA
               </h3>
+              {projectName && (
+                <span className="text-[11px] font-semibold text-amber-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
+                  Projeto: {projectName}
+                </span>
+              )}
               <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
                 Modo: Full (strict)
               </span>

@@ -16,9 +16,16 @@ import type { ProxyConfiguration } from '../../types/index.ts';
 interface TraefikViewProps {
   onApplyConfig: () => Promise<void>;
   isApplying: boolean;
+  projectId?: string | null;
+  projectName?: string;
 }
 
-export const TraefikView: React.FC<TraefikViewProps> = ({ onApplyConfig, isApplying }) => {
+export const TraefikView: React.FC<TraefikViewProps> = ({
+  onApplyConfig,
+  isApplying,
+  projectId,
+  projectName,
+}) => {
   const [configData, setConfigData] = useState<any>(null);
   const [revisions, setRevisions] = useState<ProxyConfiguration[]>([]);
   const [selectedRevision, setSelectedRevision] = useState<ProxyConfiguration | null>(null);
@@ -28,8 +35,12 @@ export const TraefikView: React.FC<TraefikViewProps> = ({ onApplyConfig, isApply
   const loadTraefikData = async () => {
     setIsLoading(true);
     try {
+      const previewUrl = projectId
+        ? `/api/traefik/preview?projectId=${encodeURIComponent(projectId)}`
+        : '/api/traefik/preview';
+
       const [previewRes, revsRes] = await Promise.all([
-        fetch('/api/traefik/preview', {
+        fetch(previewUrl, {
           headers: { Authorization: `Bearer ${localStorage.getItem('dm_auth_token') || ''}` },
         }),
         fetch('/api/traefik/revisions', {
@@ -54,7 +65,7 @@ export const TraefikView: React.FC<TraefikViewProps> = ({ onApplyConfig, isApply
 
   useEffect(() => {
     loadTraefikData();
-  }, []);
+  }, [projectId]);
 
   const handleCopy = () => {
     if (!configData?.yaml) return;
@@ -84,6 +95,11 @@ export const TraefikView: React.FC<TraefikViewProps> = ({ onApplyConfig, isApply
             <h3 className="text-sm font-bold text-slate-900">
               Provedor Dinâmico de Configuração do Traefik
             </h3>
+            {projectName && (
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                Projeto: {projectName}
+              </span>
+            )}
             {configData?.valid ? (
               <span className="text-xs font-semibold text-emerald-700 flex items-center gap-1">
                 <CheckCircle className="w-3.5 h-3.5" />

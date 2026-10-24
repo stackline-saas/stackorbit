@@ -23,6 +23,8 @@ interface ContainersViewProps {
   onImportContainer?: (container: DockerContainerInfo) => void;
   onOpenImportCompose?: () => void;
   existingServices?: Array<{ containerName: string; id: string; name: string }>;
+  projectId?: string | null;
+  projectName?: string;
 }
 
 export const ContainersView: React.FC<ContainersViewProps> = ({
@@ -33,6 +35,8 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
   onImportContainer,
   onOpenImportCompose,
   existingServices = [],
+  projectId,
+  projectName,
 }) => {
   const [containers, setContainers] = useState<DockerContainerInfo[]>([]);
   const [statusInfo, setStatusInfo] = useState<any>(null);
@@ -42,7 +46,10 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
   const loadContainers = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/containers', {
+      const url = projectId
+        ? `/api/containers?projectId=${encodeURIComponent(projectId)}`
+        : '/api/containers';
+      const res = await fetch(url, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem('dm_auth_token') || ''}`,
         },
@@ -66,7 +73,7 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
 
   useEffect(() => {
     loadContainers();
-  }, []);
+  }, [projectId]);
 
   const filtered = containers.filter(
     (c) =>

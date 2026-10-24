@@ -650,6 +650,7 @@ function MainApp() {
   const displayedDomains = selectedProjectId
     ? domains.filter((d) => displayedServiceIds.has(d.serviceId))
     : domains;
+  const selectedProject = projects.find((p) => p.id === selectedProjectId) || null;
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
@@ -860,6 +861,8 @@ function MainApp() {
                 element={
                   <ContainersView
                     existingServices={services}
+                    projectId={selectedProjectId}
+                    projectName={selectedProject?.name}
                     onOpenImportCompose={() => setImportComposeModalOpen(true)}
                     onImportContainer={(container) => {
                       const port =
@@ -892,16 +895,39 @@ function MainApp() {
               />
 
               {/* 6b. Git Integrations */}
-              <Route path="/integrations" element={<IntegrationsView />} />
+              <Route
+                path="/integrations"
+                element={
+                  <IntegrationsView
+                    projectId={selectedProjectId}
+                    projectName={selectedProject?.name}
+                  />
+                }
+              />
 
               {/* 7. Traefik Dynamic Router */}
               <Route
                 path="/traefik"
-                element={<TraefikView onApplyConfig={handleApplyTraefik} isApplying={isApplyingTraefik} />}
+                element={
+                  <TraefikView
+                    onApplyConfig={handleApplyTraefik}
+                    isApplying={isApplyingTraefik}
+                    projectId={selectedProjectId}
+                    projectName={selectedProject?.name}
+                  />
+                }
               />
 
               {/* 8. Cloudflare & SSL */}
-              <Route path="/cloudflare" element={<CloudflareView />} />
+              <Route
+                path="/cloudflare"
+                element={
+                  <CloudflareView
+                    projectId={selectedProjectId}
+                    projectName={selectedProject?.name}
+                  />
+                }
+              />
 
               {/* 9. Audit Logs */}
               <Route path="/audit" element={<AuditLogsView />} />
@@ -910,7 +936,16 @@ function MainApp() {
               <Route path="/tests" element={<TestSuiteView />} />
 
               {/* 11. System Settings */}
-              <Route path="/settings" element={<SettingsView />} />
+              <Route
+                path="/settings"
+                element={
+                  <SettingsView
+                    onSettingsSaved={loadData}
+                    projectId={selectedProjectId}
+                    projectName={selectedProject?.name}
+                  />
+                }
+              />
 
               {/* Catch-all fallback route */}
               <Route path="*" element={<Navigate to="/dashboard" replace />} />

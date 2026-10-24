@@ -39,15 +39,22 @@ router.get('/status', requireAuth, (req, res) => {
 
 // 2. Cloudflare settings & status
 router.get('/', requireAuth, async (req, res) => {
+  const projectId = req.query.projectId as string | undefined;
   try {
     const settings = await prisma.appSettings.findFirst({ where: { id: 'default' } });
+    let project = null;
+    if (projectId) {
+      project = await prisma.project.findUnique({ where: { id: projectId } });
+    }
     const status = getCertStatus();
 
     return res.json({
-      mainDomain: settings?.mainDomain || 'meudominio.com.br',
-      originServerIp: settings?.originServerIp || '127.0.0.1',
-      originHttpsPort: settings?.originHttpsPort || 443,
-      cloudflareSslMode: settings?.cloudflareSslMode || 'Full (strict)',
+      projectId: project?.id,
+      projectName: project?.name,
+      mainDomain: project?.mainDomain || settings?.mainDomain || 'meudominio.com.br',
+      originServerIp: project?.originServerIp || settings?.originServerIp || '127.0.0.1',
+      originHttpsPort: project?.originHttpsPort || settings?.originHttpsPort || 443,
+      cloudflareSslMode: project?.cloudflareSslMode || settings?.cloudflareSslMode || 'Full (strict)',
       sslConfigured: status.isConfigured,
       certStatus: status,
     });
@@ -58,9 +65,34 @@ router.get('/', requireAuth, async (req, res) => {
 
 // 3. Update Cloudflare settings
 router.put('/', requireAuth, async (req: AuthenticatedRequest, res) => {
-  const { mainDomain, originServerIp, originHttpsPort, cloudflareSslMode } = req.body;
+  const { mainDomain, originServerIp, originHttpsPort, cloudflareSslMode, projectId: bodyProjectId } = req.body;
+  const projectId = bodyProjectId || (req.query.projectId as string | undefined);
 
   try {
+    if (projectId) {
+      const updatedProject = await prisma.project.update({
+        where: { id: projectId },
+        data: {
+          mainDomain: mainDomain !== undefined ? mainDomain.trim() : undefined,
+          originServerIp: originServerIp !== undefined ? originServerIp.trim() : undefined,
+          originHttpsPort: originHttpsPort !== undefined ? Number(originHttpsPort) : undefined,
+          cloudflareSslMode: cloudflareSslMode !== undefined ? cloudflareSslMode : undefined,
+        },
+      });
+
+      await logAudit({
+        userId: req.user?.id,
+        userName: req.user?.name || 'Administrador',
+        action: 'PROJECT_CLOUDFLARE_ATUALIZADAS',
+        entityType: 'PROJECT',
+        entityId: projectId,
+        details: `Configurações de SSL/Cloudflare atualizadas para o projeto "${updatedProject.name}". Modo: ${updatedProject.cloudflareSslMode}.`,
+        ipAddress: req.ip,
+      });
+
+      return res.json(updatedProject);
+    }
+
     const updated = await prisma.appSettings.upsert({
       where: { id: 'default' },
       update: {

@@ -3,9 +3,20 @@ import { Settings, Shield, Server, FileText, Check, Save } from 'lucide-react';
 import { useNotification } from '../../context/NotificationContext.tsx';
 import type { AppSettings } from '../../types/index.ts';
 
-export const SettingsView: React.FC = () => {
+interface SettingsViewProps {
+  onSettingsSaved?: () => void;
+  projectId?: string | null;
+  projectName?: string;
+}
+
+export const SettingsView: React.FC<SettingsViewProps> = ({
+  onSettingsSaved,
+  projectId,
+  projectName,
+}) => {
   const { showNotification } = useNotification();
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [mainDomain, setMainDomain] = useState('meudominio.com.br');
   const [dockerSocketPath, setDockerSocketPath] = useState('/var/run/docker.sock');
   const [traefikPath, setTraefikPath] = useState('./traefik/dynamic/dynamic_conf.yml');
   const [autoApply, setAutoApply] = useState(true);
@@ -15,23 +26,27 @@ export const SettingsView: React.FC = () => {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const res = await fetch('/api/settings', {
+        const url = projectId
+          ? `/api/settings?projectId=${encodeURIComponent(projectId)}`
+          : '/api/settings';
+        const res = await fetch(url, {
           headers: { Authorization: `Bearer ${localStorage.getItem('dm_auth_token') || ''}` },
         });
         if (res.ok) {
           const json = await res.json();
           setSettings(json);
-          setDockerSocketPath(json.dockerSocketPath);
-          setTraefikPath(json.traefikDynamicConfigPath);
-          setAutoApply(json.autoApplyTraefik);
-          setDefaultFallback(json.defaultFallbackEnabled);
+          if (json.mainDomain) setMainDomain(json.mainDomain);
+          if (json.dockerSocketPath) setDockerSocketPath(json.dockerSocketPath);
+          if (json.traefikDynamicConfigPath) setTraefikPath(json.traefikDynamicConfigPath);
+          if (json.autoApplyTraefik !== undefined) setAutoApply(json.autoApplyTraefik);
+          if (json.defaultFallbackEnabled !== undefined) setDefaultFallback(json.defaultFallbackEnabled);
         }
       } catch (err) {
         console.error('Falha ao carregar configurações:', err);
       }
     };
     fetchSettings();
-  }, []);
+  }, [projectId]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,6 +59,8 @@ export const SettingsView: React.FC = () => {
           Authorization: `Bearer ${localStorage.getItem('dm_auth_token') || ''}`,
         },
         body: JSON.stringify({
+          projectId: projectId || undefined,
+          mainDomain,
           dockerSocketPath,
           traefikDynamicConfigPath: traefikPath,
           autoApplyTraefik: autoApply,
@@ -52,7 +69,14 @@ export const SettingsView: React.FC = () => {
       });
 
       if (res.ok) {
-        showNotification('success', 'Configurações Salvas', 'Parâmetros do sistema atualizados com sucesso.');
+        showNotification(
+          'success',
+          'Configurações Salvas',
+          projectName
+            ? `Parâmetros do projeto "${projectName}" atualizados com sucesso.`
+            : 'Parâmetros do sistema atualizados com sucesso.'
+        );
+        onSettingsSaved?.();
       } else {
         showNotification('error', 'Erro', 'Falha ao salvar configurações.');
       }
@@ -67,12 +91,38 @@ export const SettingsView: React.FC = () => {
     <div className="space-y-6">
       {/* Settings Form */}
       <div className="bg-white rounded-lg border border-slate-200 shadow-xs p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Settings className="w-5 h-5 text-blue-600" />
-          <h3 className="text-sm font-bold text-slate-900">Configurações Gerais da Aplicação</h3>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Settings className="w-5 h-5 text-blue-600" />
+            <h3 className="text-sm font-bold text-slate-900">
+              {projectName ? `Configurações do Projeto: ${projectName}` : 'Configurações Gerais da Aplicação'}
+            </h3>
+          </div>
+          {projectName && (
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+              Projeto Ativo
+            </span>
+          )}
         </div>
 
         <form onSubmit={handleSave} className="space-y-4 max-w-2xl">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Domínio Principal {projectName ? `do Projeto (${projectName})` : 'Padrão'}
+            </label>
+            <input
+              type="text"
+              required
+              value={mainDomain}
+              onChange={(e) => setMainDomain(e.target.value)}
+              placeholder="ex: meudominio.com.br"
+              className="w-full px-3 py-2 text-xs font-mono rounded-md border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
+            />
+            <span className="text-[10px] text-slate-400">
+              Domínio base utilizado para sugestão de subdomínios e roteamento padrão.
+            </span>
+          </div>
+
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
               Caminho do Socket Docker Engine

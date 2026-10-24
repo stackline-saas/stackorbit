@@ -128,9 +128,12 @@ export class TraefikService {
     this.configPath = config.traefikDynamicConfigPath;
   }
 
-  public async generateConfigObject(): Promise<TraefikConfig> {
+  public async generateConfigObject(projectId?: string): Promise<TraefikConfig> {
     const services = await prisma.service.findMany({
-      where: { isActive: true },
+      where: {
+        isActive: true,
+        ...(projectId ? { projectId } : {}),
+      },
       include: {
         domains: {
           where: { isActive: true },
@@ -245,8 +248,8 @@ export class TraefikService {
     return traefikConfig;
   }
 
-  public async generateYamlString(): Promise<string> {
-    const configObj = await this.generateConfigObject();
+  public async generateYamlString(projectId?: string): Promise<string> {
+    const configObj = await this.generateConfigObject(projectId);
     const commentHeader = [
       '# ===================================================================',
       '# TRAEFIK DYNAMIC CONFIGURATION - GERADO AUTOMATICAMENTE PELO BACKEND',

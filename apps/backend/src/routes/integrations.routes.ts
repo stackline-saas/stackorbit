@@ -4,10 +4,17 @@ import { prisma, logAudit } from '../db.js';
 export const integrationsRouter = Router();
 
 // Helper to get active GitHub token
-async function getGitHubProvider(providerId?: string) {
+async function getGitHubProvider(providerId?: string, projectId?: string) {
   if (providerId) {
     const p = await (prisma as any).gitProvider.findUnique({ where: { id: providerId } });
     if (p && p.isActive) return p;
+  }
+  if (projectId) {
+    const p = await (prisma as any).gitProvider.findFirst({
+      where: { provider: 'github', isActive: true, projectId },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (p) return p;
   }
   return await (prisma as any).gitProvider.findFirst({
     where: { provider: 'github', isActive: true },
@@ -20,12 +27,20 @@ async function getGitHubProvider(providerId?: string) {
 // -----------------------------------------------------------------------------
 integrationsRouter.get('/providers', async (req, res) => {
   try {
+    const { projectId } = req.query;
+    const where: any = {};
+    if (projectId && typeof projectId === 'string') {
+      where.OR = [{ projectId }, { projectId: null }];
+    }
+
     const providers = await (prisma as any).gitProvider.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
     });
 
     const sanitized = providers.map((p: any) => ({
       id: p.id,
+      projectId: p.projectId,
       provider: p.provider,
       name: p.name,
       accountName: p.accountName,
@@ -51,7 +66,7 @@ integrationsRouter.get('/providers', async (req, res) => {
 // -----------------------------------------------------------------------------
 integrationsRouter.post('/github/connect-pat', async (req, res) => {
   try {
-    const { token, name } = req.body;
+    const { token, name, projectId } = req.body;
     if (!token || typeof token !== 'string' || !token.trim()) {
       return res.status(400).json({ error: 'Token de Acesso Pessoal (PAT) é obrigatório.' });
     }
@@ -81,7 +96,11 @@ integrationsRouter.post('/github/connect-pat', async (req, res) => {
 
     // Upsert or create provider record
     const existing = await (prisma as any).gitProvider.findFirst({
-      where: { provider: 'github', accountName: ghUser.login },
+      where: {
+        provider: 'github',
+        accountName: ghUser.login,
+        ...(projectId ? { projectId } : {}),
+      },
     });
 
     let providerRecord;
@@ -90,6 +109,7 @@ integrationsRouter.post('/github/connect-pat', async (req, res) => {
         where: { id: existing.id },
         data: {
           name: name?.trim() || ghUser.name || ghUser.login,
+          projectId: projectId || existing.projectId || null,
           accountName: ghUser.login,
           accountUrl: ghUser.html_url,
           avatarUrl: ghUser.avatar_url,
@@ -109,6 +129,7 @@ integrationsRouter.post('/github/connect-pat', async (req, res) => {
       providerRecord = await (prisma as any).gitProvider.create({
         data: {
           provider: 'github',
+          projectId: projectId || null,
           name: name?.trim() || ghUser.name || ghUser.login,
           accountName: ghUser.login,
           accountUrl: ghUser.html_url,
@@ -280,9 +301,10 @@ integrationsRouter.delete('/providers/:id', async (req, res) => {
 integrationsRouter.get('/github/repos', async (req, res) => {
   try {
     const providerId = req.query.providerId as string | undefined;
+    const projectId = req.query.projectId as string | undefined;
     const searchQuery = ((req.query.q as string) || '').toLowerCase().trim();
 
-    const provider = await getGitHubProvider(providerId);
+    const provider = await getGitHubProvider(providerId, projectId);
     if (!provider) {
       return res.status(404).json({
         error: 'Nenhuma conta do GitHub conectada. Conecte sua conta em Integrações.',
@@ -359,8 +381,9 @@ integrationsRouter.get('/github/repos/:owner/:repo/branches', async (req, res) =
   try {
     const { owner, repo } = req.params;
     const providerId = req.query.providerId as string | undefined;
+    const projectId = req.query.projectId as string | undefined;
 
-    const provider = await getGitHubProvider(providerId);
+    const provider = await getGitHubProvider(providerId, projectId);
     if (!provider) {
       return res.status(404).json({ error: 'Nenhuma conta do GitHub conectada.' });
     }
@@ -399,8 +422,9 @@ integrationsRouter.get('/github/repos/:owner/:repo/inspect', async (req, res) =>
     const { owner, repo } = req.params;
     const branch = (req.query.branch as string) || 'main';
     const providerId = req.query.providerId as string | undefined;
+    const projectId = req.query.projectId as string | undefined;
 
-    const provider = await getGitHubProvider(providerId);
+    const provider = await getGitHubProvider(providerId, projectId);
     if (!provider) {
       return res.status(404).json({ error: 'Nenhuma conta do GitHub conectada.' });
     }
@@ -578,12 +602,13 @@ integrationsRouter.get('/github/repos/:owner/:repo/file-content', async (req, re
     const filePath = req.query.path as string;
     const branch = (req.query.branch as string) || 'main';
     const providerId = req.query.providerId as string | undefined;
+    const projectId = req.query.projectId as string | undefined;
 
     if (!filePath) {
       return res.status(400).json({ error: 'Parâmetro path é obrigatório.' });
     }
 
-    const provider = await getGitHubProvider(providerId);
+    const provider = await getGitHubProvider(providerId, projectId);
     if (!provider) {
       return res.status(404).json({ error: 'Nenhuma conta do GitHub conectada.' });
     }

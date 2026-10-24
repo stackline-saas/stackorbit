@@ -23,7 +23,12 @@ import type { GitProviderAccount } from '../../types/index.ts';
 import { useAuth } from '../../context/AuthContext.tsx';
 import { useNotification } from '../../context/NotificationContext.tsx';
 
-export const IntegrationsView: React.FC = () => {
+interface IntegrationsViewProps {
+  projectId?: string | null;
+  projectName?: string;
+}
+
+export const IntegrationsView: React.FC<IntegrationsViewProps> = ({ projectId, projectName }) => {
   const { authFetch } = useAuth();
   const { showNotification } = useNotification();
 
@@ -46,7 +51,10 @@ export const IntegrationsView: React.FC = () => {
   const loadProviders = async () => {
     setIsLoading(true);
     try {
-      const res = await authFetch('/api/integrations/providers');
+      const url = projectId
+        ? `/api/integrations/providers?projectId=${encodeURIComponent(projectId)}`
+        : '/api/integrations/providers';
+      const res = await authFetch(url);
       if (res.ok) {
         const data = await res.json();
         setProviders(data);
@@ -60,7 +68,7 @@ export const IntegrationsView: React.FC = () => {
 
   useEffect(() => {
     loadProviders();
-  }, []);
+  }, [projectId]);
 
   const githubProvider = providers.find((p) => p.provider === 'github' && p.isActive);
 
@@ -82,6 +90,7 @@ export const IntegrationsView: React.FC = () => {
         body: JSON.stringify({
           token: patToken.trim(),
           name: patAccountName.trim() || undefined,
+          projectId: projectId || undefined,
         }),
       });
 
@@ -158,9 +167,16 @@ export const IntegrationsView: React.FC = () => {
           <h1 className="text-base font-bold text-slate-900 flex items-center gap-2">
             <GitBranch className="w-5 h-5 text-blue-600" />
             <span>Integrações & Provedores Git</span>
+            {projectName && (
+              <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                {projectName}
+              </span>
+            )}
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Conecte sua conta do GitHub para importar projetos com 1 clique, autodetectar Dockerfiles e habilitar Push-to-Deploy.
+            {projectName
+              ? `Conexões Git e credenciais do projeto "${projectName}".`
+              : 'Conecte sua conta do GitHub para importar projetos com 1 clique, autodetectar Dockerfiles e habilitar Push-to-Deploy.'}
           </p>
         </div>
 

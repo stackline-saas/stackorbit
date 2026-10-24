@@ -7,12 +7,13 @@ const router = Router();
 
 // 1. Preview generated dynamic configuration
 router.get('/preview', requireAuth, async (req, res) => {
+  const projectId = req.query.projectId as string | undefined;
   try {
     const [yaml, config] = await Promise.all([
-      traefikService.generateYamlString(),
-      traefikService.generateConfigObject(),
+      traefikService.generateYamlString(projectId),
+      traefikService.generateConfigObject(projectId),
     ]);
-    return res.json({ yaml, config });
+    return res.json({ yaml, config, projectId });
   } catch (err: any) {
     return res.status(500).json({ error: `Erro ao gerar preview do Traefik: ${err.message}` });
   }
@@ -20,15 +21,17 @@ router.get('/preview', requireAuth, async (req, res) => {
 
 // 2. Traefik config (raw file or preview)
 router.get('/config', requireAuth, async (req, res) => {
+  const projectId = req.query.projectId as string | undefined;
   try {
     const raw = traefikService.getRawConfig();
-    const configObj = await traefikService.generateConfigObject();
-    const yaml = raw.exists ? raw.yaml : await traefikService.generateYamlString();
+    const configObj = await traefikService.generateConfigObject(projectId);
+    const yaml = raw.exists && !projectId ? raw.yaml : await traefikService.generateYamlString(projectId);
 
     return res.json({
       yaml,
       json: configObj,
       existsOnDisk: raw.exists,
+      projectId,
     });
   } catch (err: any) {
     return res.status(500).json({ error: `Erro ao obter configuração do Traefik: ${err.message}` });

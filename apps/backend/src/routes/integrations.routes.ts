@@ -424,13 +424,16 @@ integrationsRouter.get('/github/repos/:owner/:repo/inspect', async (req, res) =>
     let detectedType = 'Docker';
     let hasDockerfile = false;
     let hasCompose = false;
+    let composeCandidates: string[] = [];
+    let dockerfileCandidates: string[] = [];
+    let envCandidates: string[] = [];
 
     if (treeRes.ok) {
       const treeData = (await treeRes.json()) as any;
       const files: string[] = (treeData.tree || []).map((item: any) => item.path);
 
       // 1. Search for Docker Compose files
-      const composeCandidates = files.filter(
+      composeCandidates = files.filter(
         (f) =>
           f === 'docker-compose.yml' ||
           f === 'docker-compose.yaml' ||
@@ -449,7 +452,7 @@ integrationsRouter.get('/github/repos/:owner/:repo/inspect', async (req, res) =>
       }
 
       // 2. Search for Dockerfile
-      const dockerfileCandidates = files.filter(
+      dockerfileCandidates = files.filter(
         (f) =>
           f === 'Dockerfile' ||
           f.endsWith('/Dockerfile') ||
@@ -476,7 +479,30 @@ integrationsRouter.get('/github/repos/:owner/:repo/inspect', async (req, res) =>
         detectedType = 'Docker Compose Stack';
       }
 
-      // 3. Detect project type and suggest port
+      // 3. Search for .env files
+      const envCandidates = files
+        .filter((f) => {
+          const base = f.includes('/') ? f.split('/').pop()! : f;
+          return (
+            base.startsWith('.env') ||
+            base === 'env.example' ||
+            base === 'env.sample' ||
+            base === 'env.production' ||
+            base === 'env.local'
+          );
+        })
+        .sort((a, b) => {
+          const priority = (name: string) => {
+            if (name.includes('example')) return 1;
+            if (name.includes('sample')) return 2;
+            if (name.includes('prod')) return 3;
+            if (name === '.env') return 4;
+            return 5;
+          };
+          return priority(a) - priority(b);
+        });
+
+      // 4. Detect project type and suggest port
       if (files.some((f) => f === 'package.json' || f.endsWith('/package.json'))) {
         detectedType = 'Node.js / JavaScript';
         suggestedPort = 3000;
@@ -521,8 +547,11 @@ integrationsRouter.get('/github/repos/:owner/:repo/inspect', async (req, res) =>
     return res.json({
       hasCompose,
       detectedComposeFile,
+      composeCandidates,
       hasDockerfile,
       detectedDockerfile,
+      dockerfileCandidates,
+      envCandidates,
       definitionType: hasCompose ? 'compose' : 'dockerfile',
       suggestedDefinitionFile: hasCompose ? detectedComposeFile : detectedDockerfile,
       suggestedBuildContext,
@@ -530,6 +559,52 @@ integrationsRouter.get('/github/repos/:owner/:repo/inspect', async (req, res) =>
       detectedType,
       token: provider.accessToken, // pre-fills token for private repos clone
     });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 8. GET FILE CONTENT (FOR .ENV OR CONFIG IMPORT)
+// -----------------------------------------------------------------------------
+integrationsRouter.get('/github/repos/:owner/:repo/file-content', async (req, res) => {
+  try {
+    const { owner, repo } = req.params;
+    const filePath = req.query.path as string;
+    const branch = (req.query.branch as string) || 'main';
+    const providerId = req.query.providerId as string | undefined;
+
+    if (!filePath) {
+      return res.status(400).json({ error: 'Parâmetro path é obrigatório.' });
+    }
+
+    const provider = await getGitHubProvider(providerId);
+    if (!provider) {
+      return res.status(404).json({ error: 'Nenhuma conta do GitHub conectada.' });
+    }
+
+    const headers = {
+      Authorization: `Bearer ${provider.accessToken}`,
+      Accept: 'application/vnd.github.v3+json',
+      'User-Agent': 'DockerDomainManager/1.0',
+    };
+
+    const fileRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}?ref=${encodeURIComponent(branch)}`,
+      { headers }
+    );
+
+    if (!fileRes.ok) {
+      return res.status(fileRes.status).json({ error: `Arquivo "${filePath}" não encontrado no repositório.` });
+    }
+
+    const fileData = (await fileRes.json()) as any;
+    if (!fileData.content) {
+      return res.json({ content: '', path: filePath });
+    }
+
+    const content = Buffer.from(fileData.content, 'base64').toString('utf8');
+    return res.json({ content, path: filePath, size: fileData.size });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

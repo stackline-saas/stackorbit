@@ -28,6 +28,14 @@ import {
   Check,
   Star,
   Tag,
+  Plus,
+  Trash2,
+  Copy,
+  FileText,
+  Code,
+  List,
+  Download,
+  Upload,
 } from 'lucide-react';
 import type { Service, GitProviderAccount, GitHubRepoItem, GitHubBranchItem, ProjectInspectionResult } from '../../types/index.ts';
 import { useAuth } from '../../context/AuthContext.tsx';
@@ -47,6 +55,52 @@ const PRESETS = [
   { label: 'MongoDB', image: 'mongo:7', port: 27017, icon: '🍃' },
   { label: 'MinIO', image: 'quay.io/minio/minio:latest', port: 9000, icon: '🪣' },
 ];
+
+interface EnvRow {
+  id: string;
+  key: string;
+  value: string;
+  isSecret?: boolean;
+}
+
+const parseEnvToRows = (raw: string): EnvRow[] => {
+  if (!raw || !raw.trim()) return [];
+  const lines = raw.split('\n');
+  const rows: EnvRow[] = [];
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx !== -1) {
+      const key = trimmed.slice(0, eqIdx).trim();
+      let value = trimmed.slice(eqIdx + 1).trim();
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      rows.push({
+        id: `env-${index}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        key,
+        value,
+        isSecret: /secret|pass|token|key|pwd|auth/i.test(key),
+      });
+    } else {
+      rows.push({
+        id: `env-${index}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        key: trimmed,
+        value: '',
+        isSecret: false,
+      });
+    }
+  });
+  return rows;
+};
+
+const serializeRowsToEnv = (rows: EnvRow[]): string => {
+  return rows
+    .filter((r) => r.key.trim().length > 0)
+    .map((r) => `${r.key.trim()}=${r.value}`)
+    .join('\n');
+};
 
 export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) => {
   const navigate = useNavigate();
@@ -114,6 +168,10 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
   const [showToken, setShowToken] = useState(false);
   const [triggerInitialBuild, setTriggerInitialBuild] = useState(true);
   const [envVars, setEnvVars] = useState('');
+  const [envMode, setEnvMode] = useState<'raw' | 'keyvalue'>('raw');
+  const [envRows, setEnvRows] = useState<EnvRow[]>([]);
+  const [isImportingEnv, setIsImportingEnv] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Manual URL entry fallback toggle
   const [isManualGitMode, setIsManualGitMode] = useState(false);
@@ -288,6 +346,91 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
     }
   };
 
+  const handleEnvModeChange = (mode: 'raw' | 'keyvalue') => {
+    if (mode === 'keyvalue') {
+      setEnvRows(parseEnvToRows(envVars));
+    } else {
+      setEnvVars(serializeRowsToEnv(envRows));
+    }
+    setEnvMode(mode);
+  };
+
+  const handleAddEnvRow = () => {
+    const newRow: EnvRow = {
+      id: `env-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      key: '',
+      value: '',
+      isSecret: false,
+    };
+    const updated = [...envRows, newRow];
+    setEnvRows(updated);
+    setEnvVars(serializeRowsToEnv(updated));
+  };
+
+  const handleUpdateEnvRow = (id: string, field: 'key' | 'value', val: string) => {
+    const updated = envRows.map((r) => {
+      if (r.id !== id) return r;
+      const isSecret = field === 'key' 
+        ? /secret|pass|token|key|pwd|auth/i.test(val)
+        : r.isSecret;
+      return { ...r, [field]: val, isSecret: field === 'key' ? isSecret : r.isSecret };
+    });
+    setEnvRows(updated);
+    setEnvVars(serializeRowsToEnv(updated));
+  };
+
+  const handleRemoveEnvRow = (id: string) => {
+    const updated = envRows.filter((r) => r.id !== id);
+    setEnvRows(updated);
+    setEnvVars(serializeRowsToEnv(updated));
+  };
+
+  const handleToggleRowSecret = (id: string) => {
+    setEnvRows(envRows.map((r) => (r.id === id ? { ...r, isSecret: !r.isSecret } : r)));
+  };
+
+  const handleImportEnvFile = async (filePath: string) => {
+    if (!selectedRepo) return;
+    setIsImportingEnv(filePath);
+    try {
+      const res = await authFetch(
+        `/api/integrations/github/repos/${selectedRepo.owner}/${selectedRepo.name}/file-content?path=${encodeURIComponent(
+          filePath
+        )}&branch=${encodeURIComponent(selectedBranch)}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const content = data.content || '';
+        setEnvVars(content);
+        setEnvRows(parseEnvToRows(content));
+        showNotification('success', 'Variáveis Importadas', `Conteúdo de "${filePath}" carregado com sucesso.`);
+      } else {
+        const err = await res.json();
+        showNotification('error', 'Falha ao importar', err.error || 'Não foi possível ler o arquivo.');
+      }
+    } catch (err: any) {
+      showNotification('error', 'Falha ao importar', err.message);
+    } finally {
+      setIsImportingEnv(null);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      if (text) {
+        setEnvVars(text);
+        setEnvRows(parseEnvToRows(text));
+        showNotification('success', 'Arquivo Carregado', `Variáveis importadas de "${file.name}".`);
+      }
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   // Filtered repositories based on search and visibility
   const filteredRepos = repos.filter((r) => {
     const matchesSearch =
@@ -336,16 +479,18 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
       isDefault,
     } as any;
 
+    const finalEnv = envMode === 'keyvalue' ? serializeRowsToEnv(envRows) : envVars;
+
     if (sourceType === 'GITHUB') {
       Object.assign(payload, {
         image: `${containerName.trim()}:latest`,
         gitRepoUrl: gitRepoUrl.trim(),
         gitBranch: selectedBranch.trim() || 'main',
-        dockerfilePath: dockerfilePath.trim() || 'Dockerfile',
+        dockerfilePath: dockerfilePath.trim() || (definitionType === 'compose' ? 'docker-compose.yml' : 'Dockerfile'),
         gitToken: gitToken.trim() || undefined,
-        buildContext: buildContext.trim() || '.',
+        buildContext: definitionType === 'compose' ? '.' : (buildContext.trim() || '.'),
         triggerInitialBuild,
-        envVars: envVars || undefined,
+        envVars: finalEnv.trim() || undefined,
       });
     } else {
       Object.assign(payload, { image: image.trim() });
@@ -995,21 +1140,24 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
 
                   {showAdvancedGitSettings && (
                     <div className="space-y-4 pt-2">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          Contexto do Build (Root Directory)
-                        </label>
-                        <input
-                          type="text"
-                          value={buildContext}
-                          onChange={(e) => setBuildContext(e.target.value)}
-                          placeholder="."
-                          className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                        <p className="text-[11px] text-slate-400 mt-1">
-                          Diretório base do repositório a ser considerado como contexto de compilação (padrão: <code>.</code>).
-                        </p>
-                      </div>
+                      {/* Contexto do Build: apenas necessário se for Dockerfile individual */}
+                      {definitionType === 'dockerfile' && (
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Contexto do Build (Root Directory)
+                          </label>
+                          <input
+                            type="text"
+                            value={buildContext}
+                            onChange={(e) => setBuildContext(e.target.value)}
+                            placeholder="."
+                            className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <p className="text-[11px] text-slate-400 mt-1">
+                            Diretório base do repositório a ser considerado como contexto de compilação do Dockerfile (padrão: <code>.</code>).
+                          </p>
+                        </div>
+                      )}
 
                       {/* PAT Token for Private Repos */}
                       {(selectedRepo ? selectedRepo.private : true) && (
@@ -1036,18 +1184,237 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
                         </div>
                       )}
 
-                      {/* Env Vars */}
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          Variáveis de Ambiente (opcional)
-                        </label>
-                        <textarea
-                          rows={3}
-                          placeholder={`NODE_ENV=production\nPORT=3000\nDATABASE_URL=postgresql://...`}
-                          value={envVars}
-                          onChange={(e) => setEnvVars(e.target.value)}
-                          className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      {/* Advanced Env Vars Manager */}
+                      <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          onChange={handleFileUpload}
+                          className="hidden"
+                          accept=".env,*,text/plain"
                         />
+
+                        {/* Env Header & Mode Switcher */}
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-800">
+                              Variáveis de Ambiente (opcional)
+                            </label>
+                            <p className="text-[11px] text-slate-500">
+                              {definitionType === 'compose'
+                                ? 'Serão gravadas no arquivo .env no diretório do Compose e passadas à stack.'
+                                : 'Serão injetadas no container durante o deploy.'}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {/* Mode toggle */}
+                            <div className="flex items-center gap-1 bg-slate-200/80 p-0.5 rounded-lg text-xs font-medium">
+                              <button
+                                type="button"
+                                onClick={() => handleEnvModeChange('raw')}
+                                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors ${
+                                  envMode === 'raw'
+                                    ? 'bg-white text-slate-900 font-bold shadow-2xs'
+                                    : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                              >
+                                <Code className="w-3.5 h-3.5" />
+                                <span>Texto (.env)</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleEnvModeChange('keyvalue')}
+                                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors ${
+                                  envMode === 'keyvalue'
+                                    ? 'bg-white text-slate-900 font-bold shadow-2xs'
+                                    : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                              >
+                                <List className="w-3.5 h-3.5" />
+                                <span>Chave - Valor</span>
+                              </button>
+                            </div>
+
+                            {/* Extra Quick Action Buttons */}
+                            <button
+                              type="button"
+                              onClick={() => fileInputRef.current?.click()}
+                              title="Carregar arquivo .env do seu computador"
+                              className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-white rounded-lg border border-slate-200 bg-white transition-all text-xs font-medium flex items-center gap-1"
+                            >
+                              <Upload className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline text-[11px]">Subir .env</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Import Chips from Repository */}
+                        {inspectionResult?.envCandidates && inspectionResult.envCandidates.length > 0 && (
+                          <div className="p-2.5 bg-blue-50/70 rounded-lg border border-blue-200/80 space-y-1.5">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-bold text-blue-900 flex items-center gap-1.5">
+                                <Download className="w-3.5 h-3.5 text-blue-600" />
+                                <span>Arquivos .env encontrados no repositório:</span>
+                              </span>
+                              <span className="text-slate-500 text-[10px]">Clique para preencher automaticamente</span>
+                            </div>
+
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {inspectionResult.envCandidates.map((file) => (
+                                <button
+                                  key={file}
+                                  type="button"
+                                  disabled={isImportingEnv === file}
+                                  onClick={() => handleImportEnvFile(file)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-mono bg-white hover:bg-blue-600 hover:text-white text-slate-700 rounded-md border border-slate-300 hover:border-blue-600 font-semibold shadow-2xs transition-all disabled:opacity-50"
+                                >
+                                  {isImportingEnv === file ? (
+                                    <RefreshCw className="w-3 h-3 animate-spin text-blue-600" />
+                                  ) : (
+                                    <FileText className="w-3 h-3 text-blue-500" />
+                                  )}
+                                  <span>{file}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Mode 1: Raw Text (.env) */}
+                        {envMode === 'raw' && (
+                          <div className="space-y-2">
+                            <div className="relative">
+                              <textarea
+                                rows={7}
+                                placeholder={`# Defina as variáveis linha por linha no formato CHAVE=VALOR\nPORT=3000\nNODE_ENV=production\nDATABASE_URL=postgresql://usuario:senha@host:5432/banco\nSECRET_KEY=minha-chave-secreta`}
+                                value={envVars}
+                                onChange={(e) => {
+                                  setEnvVars(e.target.value);
+                                  setEnvRows(parseEnvToRows(e.target.value));
+                                }}
+                                spellCheck={false}
+                                className="w-full px-3.5 py-2.5 text-xs font-mono bg-slate-900 text-emerald-400 placeholder:text-slate-600 rounded-lg border border-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 leading-relaxed"
+                              />
+
+                              {envVars && (
+                                <div className="absolute right-3 top-3 flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(envVars);
+                                      showNotification('info', 'Copiado', 'Variáveis copiadas para a área de transferência.');
+                                    }}
+                                    className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors text-[10px] flex items-center gap-1 px-2"
+                                    title="Copiar todas as variáveis"
+                                  >
+                                    <Copy className="w-3 h-3" />
+                                    <span>Copiar</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEnvVars('');
+                                      setEnvRows([]);
+                                    }}
+                                    className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-rose-400 hover:text-rose-300 transition-colors text-[10px] px-2"
+                                    title="Limpar variáveis"
+                                  >
+                                    Limpar
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex items-center justify-between text-[11px] text-slate-500">
+                              <span>
+                                {envVars.trim() ? `${envVars.trim().split('\n').length} linha(s) configurada(s)` : 'Nenhuma variável configurada'}
+                              </span>
+                              <span>Suporta comentários iniciados com #</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Mode 2: Key - Value Editor */}
+                        {envMode === 'keyvalue' && (
+                          <div className="space-y-3">
+                            {envRows.length === 0 ? (
+                              <div className="p-6 text-center rounded-lg border border-dashed border-slate-300 bg-white space-y-2">
+                                <p className="text-xs text-slate-500">
+                                  Nenhuma variável cadastrada ainda.
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={handleAddEnvRow}
+                                  className="px-3 py-1.5 text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg border border-blue-200 inline-flex items-center gap-1 transition-colors"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  <span>Adicionar Primeira Variável</span>
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                                {envRows.map((row) => (
+                                  <div
+                                    key={row.id}
+                                    className="flex items-center gap-2 p-2 bg-white rounded-lg border border-slate-200 shadow-2xs"
+                                  >
+                                    <div className="w-5/12">
+                                      <input
+                                        type="text"
+                                        placeholder="CHAVE (ex: PORT)"
+                                        value={row.key}
+                                        onChange={(e) => handleUpdateEnvRow(row.id, 'key', e.target.value)}
+                                        className="w-full px-2.5 py-1.5 text-xs font-mono font-bold rounded border border-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                      />
+                                    </div>
+                                    <span className="text-slate-400 font-mono text-xs font-bold">=</span>
+                                    <div className="flex-1 relative">
+                                      <input
+                                        type={row.isSecret ? 'password' : 'text'}
+                                        placeholder="VALOR (ex: 3000)"
+                                        value={row.value}
+                                        onChange={(e) => handleUpdateEnvRow(row.id, 'value', e.target.value)}
+                                        className="w-full pl-2.5 pr-8 py-1.5 text-xs font-mono rounded border border-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => handleToggleRowSecret(row.id)}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                                        title={row.isSecret ? 'Mostrar valor' : 'Ocultar valor'}
+                                      >
+                                        {row.isSecret ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                      </button>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveEnvRow(row.id)}
+                                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                                      title="Remover variável"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="flex items-center justify-between pt-1">
+                              <button
+                                type="button"
+                                onClick={handleAddEnvRow}
+                                className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 rounded-lg border border-slate-300 shadow-2xs inline-flex items-center gap-1.5 transition-colors"
+                              >
+                                <Plus className="w-3.5 h-3.5 text-blue-600" />
+                                <span>Adicionar Variável</span>
+                              </button>
+
+                              <span className="text-[11px] text-slate-500">
+                                {envRows.length} variável(is) estruturada(s)
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}

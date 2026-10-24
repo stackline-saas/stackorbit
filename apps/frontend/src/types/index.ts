@@ -120,6 +120,7 @@ export interface ProjectInspectionResult {
   definitionType?: 'compose' | 'dockerfile';
   composeCandidates?: string[];
   dockerfileCandidates?: string[];
+  envCandidates?: string[];
   suggestedBuildContext: string;
   suggestedPort: number;
   detectedType: string;

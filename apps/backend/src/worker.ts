@@ -8,6 +8,7 @@ import tar from 'tar-fs';
 import { config } from './config.js';
 import { prisma, logAudit } from './db.js';
 import { dockerService } from './services/docker.service.js';
+import { savedDockerHost } from './services/docker-connection.js';
 import { traefikService } from './services/traefik.service.js';
 import { queueService, type BuildJobData } from './services/queue.service.js';
 
@@ -237,16 +238,24 @@ async function processBuildJob(data: BuildJobData): Promise<void> {
         }
       }
 
-      await appendLogs(`[COMPOSE] Executando: docker compose -p ${projectName} -f ${composeFileAbs} up -d --build --remove-orphans\n`);
+      const dockerHostEnv = savedDockerHost || process.env.DOCKER_HOST;
+      const dockerArgs: string[] = [];
+      if (dockerHostEnv && !dockerHostEnv.includes('127.0.0.1')) {
+        dockerArgs.push('-H', dockerHostEnv);
+      }
+      dockerArgs.push('compose', '-p', projectName, '-f', composeFileAbs, 'up', '-d', '--build', '--remove-orphans');
+
+      await appendLogs(`[COMPOSE] Executando: docker ${dockerArgs.join(' ')}\n`);
 
       await new Promise<void>((resolve, reject) => {
         const child = spawn(
           'docker',
-          ['compose', '-p', projectName, '-f', composeFileAbs, 'up', '-d', '--build', '--remove-orphans'],
+          dockerArgs,
           {
             cwd: composeDir,
             env: {
               ...process.env,
+              ...(dockerHostEnv ? { DOCKER_HOST: dockerHostEnv } : {}),
             },
           }
         );

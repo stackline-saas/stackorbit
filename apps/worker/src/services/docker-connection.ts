@@ -5,10 +5,12 @@ import fs from 'node:fs';
 
 let bridgeServer: net.Server | null = null;
 let bridgePort: number | null = null;
+export let savedDockerHost: string | undefined = process.env.DOCKER_HOST;
 
 export async function createDockerClient(): Promise<Docker> {
-  const dockerHost = process.env.DOCKER_HOST;
+  const dockerHost = process.env.DOCKER_HOST || savedDockerHost;
   const socketPath = process.env.DOCKER_SOCKET_PATH;
+  if (dockerHost) savedDockerHost = dockerHost;
 
   // 1. If explicit socket path or default /var/run/docker.sock exists (e.g. inside VPS container)
   if (socketPath && fs.existsSync(socketPath)) {

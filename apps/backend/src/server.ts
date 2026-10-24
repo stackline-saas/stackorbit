@@ -19,6 +19,7 @@ import auditRoutes from './routes/audit.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import testSuiteRoutes from './routes/test-suite.routes.js';
 import webhooksRoutes from './routes/webhooks.routes.js';
+import { integrationsRouter } from './routes/integrations.routes.js';
 import { requireAuth, type AuthenticatedRequest } from './middleware/auth.middleware.js';
 
 const app = express();
@@ -64,6 +65,7 @@ app.use('/api/audit', auditRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/test-suite', testSuiteRoutes);
 app.use('/api/webhooks', webhooksRoutes);
+app.use('/api/integrations', requireAuth, integrationsRouter);
 
 // Compatibility route for /api/default-service
 app.get('/api/default-service', requireAuth, async (req, res) => {

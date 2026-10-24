@@ -139,3 +139,24 @@ model AppSettings {
 
   @@map("app_settings")
 }
+
+model GitProvider {
+  id           String    @id @default(cuid())
+  provider     String    // "github", "gitlab", "bitbucket"
+  name         String    // e.g. "victor" ou "Meu GitHub"
+  accountName  String?   // GitHub login handle
+  accountUrl   String?
+  avatarUrl    String?
+  accessToken  String    @db.Text
+  refreshToken String?   @db.Text
+  tokenType    String    @default("oauth") // "oauth" | "pat"
+  scopes       String?   // "repo,read:user,admin:repo_hook"
+  metadata     String?   @db.Text
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([provider])
+  @@index([isActive])
+  @@map("git_providers")
+}

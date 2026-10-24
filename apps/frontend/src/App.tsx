@@ -24,6 +24,7 @@ import { CloudflareView } from './components/views/CloudflareView.tsx';
 import { AuditLogsView } from './components/views/AuditLogsView.tsx';
 import { TestSuiteView } from './components/views/TestSuiteView.tsx';
 import { SettingsView } from './components/views/SettingsView.tsx';
+import { IntegrationsView } from './components/views/IntegrationsView.tsx';
 import { ServiceDetailView } from './components/views/ServiceDetailView.tsx';
 import { CreateServiceView } from './components/views/CreateServiceView.tsx';
 import {
@@ -164,6 +165,7 @@ function MainApp() {
     if (p.startsWith('/domains')) return 'domains';
     if (p.startsWith('/default-service')) return 'default-service';
     if (p.startsWith('/containers')) return 'containers';
+    if (p.startsWith('/integrations')) return 'integrations';
     if (p.startsWith('/traefik')) return 'traefik';
     if (p.startsWith('/cloudflare')) return 'cloudflare';
     if (p.startsWith('/audit')) return 'audit';
@@ -193,6 +195,9 @@ function MainApp() {
         break;
       case 'containers':
         navigate('/containers');
+        break;
+      case 'integrations':
+        navigate('/integrations');
         break;
       case 'traefik':
         navigate('/traefik');
@@ -796,6 +801,9 @@ function MainApp() {
                   />
                 }
               />
+
+              {/* 6b. Git Integrations */}
+              <Route path="/integrations" element={<IntegrationsView />} />
 
               {/* 7. Traefik Dynamic Router */}
               <Route

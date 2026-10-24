@@ -64,11 +64,62 @@ export type ActiveTab =
   | 'domains'
   | 'default-service'
   | 'containers'
+  | 'integrations'
   | 'traefik'
   | 'cloudflare'
   | 'audit'
   | 'tests'
   | 'settings';
+
+export interface GitProviderAccount {
+  id: string;
+  provider: 'github' | 'gitlab' | 'bitbucket';
+  name: string;
+  accountName?: string;
+  accountUrl?: string;
+  avatarUrl?: string;
+  tokenType: 'oauth' | 'pat';
+  scopes?: string;
+  metadata?: {
+    publicRepos?: number;
+    privateRepos?: number;
+    email?: string;
+  } | null;
+  isActive: boolean;
+  tokenMasked?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GitHubRepoItem {
+  id: number;
+  name: string;
+  fullName: string;
+  owner: string;
+  ownerAvatar?: string;
+  private: boolean;
+  htmlUrl: string;
+  cloneUrl: string;
+  defaultBranch: string;
+  description?: string;
+  language?: string;
+  updatedAt: string;
+  stars?: number;
+}
+
+export interface GitHubBranchItem {
+  name: string;
+  commitHash?: string;
+}
+
+export interface ProjectInspectionResult {
+  hasDockerfile: boolean;
+  detectedDockerfile: string;
+  suggestedBuildContext: string;
+  suggestedPort: number;
+  detectedType: string;
+  token?: string;
+}
 
 export interface BuildLogEntry {
   serviceId: string;

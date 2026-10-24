@@ -23,6 +23,7 @@ import {
   Crown,
 } from 'lucide-react';
 import type { Project, DockerHost } from '../../types';
+import { useAuth } from '../../context/AuthContext.tsx';
 
 interface ProjectHostsViewProps {
   projects: Project[];
@@ -39,6 +40,7 @@ export const ProjectHostsView: React.FC<ProjectHostsViewProps> = ({
   onRefreshData,
   showNotification,
 }) => {
+  const { authFetch } = useAuth();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [activeHostTypeTab, setActiveHostTypeTab] = useState<'SSH' | 'LOCAL_SOCKET' | 'TCP_TLS' | 'EDGE_AGENT'>('SSH');
 
@@ -86,7 +88,7 @@ export const ProjectHostsView: React.FC<ProjectHostsViewProps> = ({
     setLoadingAgentSetup(true);
     setAgentSetupData(null);
     try {
-      const res = await fetch(`/api/hosts/${h.id}/agent-setup`);
+      const res = await authFetch(`/api/hosts/${h.id}/agent-setup`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Falha ao carregar instruções do agente.');
       setAgentSetupData(data);
@@ -101,7 +103,7 @@ export const ProjectHostsView: React.FC<ProjectHostsViewProps> = ({
     if (!confirm('Atenção: regenerar o token desconectará o agente atual até que o novo token seja aplicado. Deseja continuar?')) return;
     setIsRegeneratingToken(true);
     try {
-      const res = await fetch(`/api/hosts/${hostId}/regenerate-token`, { method: 'POST' });
+      const res = await authFetch(`/api/hosts/${hostId}/regenerate-token`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Falha ao regenerar token.');
       showNotification('success', 'Token Regenerado', data.message);
@@ -150,7 +152,7 @@ export const ProjectHostsView: React.FC<ProjectHostsViewProps> = ({
     setTestResult(null);
 
     try {
-      const res = await fetch('/api/hosts/test-connection', {
+      const res = await authFetch('/api/hosts/test-connection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -197,7 +199,7 @@ export const ProjectHostsView: React.FC<ProjectHostsViewProps> = ({
 
     setIsSaving(true);
     try {
-      const res = await fetch('/api/hosts', {
+      const res = await authFetch('/api/hosts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -232,7 +234,7 @@ export const ProjectHostsView: React.FC<ProjectHostsViewProps> = ({
   const handlePingHost = async (hostId: string) => {
     setPingLoading((prev) => ({ ...prev, [hostId]: true }));
     try {
-      const res = await fetch(`/api/hosts/${hostId}/ping`, { method: 'POST' });
+      const res = await authFetch(`/api/hosts/${hostId}/ping`, { method: 'POST' });
       const data = await res.json();
 
       if (data.success) {
@@ -261,7 +263,7 @@ export const ProjectHostsView: React.FC<ProjectHostsViewProps> = ({
     if (!confirm(`Tem certeza que deseja remover o servidor "${h.name}"?`)) return;
 
     try {
-      const res = await fetch(`/api/hosts/${h.id}`, { method: 'DELETE' });
+      const res = await authFetch(`/api/hosts/${h.id}`, { method: 'DELETE' });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error || 'Falha ao remover servidor.');

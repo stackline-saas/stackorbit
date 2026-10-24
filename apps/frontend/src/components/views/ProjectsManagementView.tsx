@@ -18,6 +18,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import type { Project, DockerHost } from '../../types';
+import { useAuth } from '../../context/AuthContext.tsx';
 
 interface ProjectsManagementViewProps {
   projects: Project[];
@@ -38,6 +39,7 @@ export const ProjectsManagementView: React.FC<ProjectsManagementViewProps> = ({
   onRefreshData,
   showNotification,
 }) => {
+  const { authFetch } = useAuth();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [name, setName] = useState('');
@@ -65,8 +67,8 @@ export const ProjectsManagementView: React.FC<ProjectsManagementViewProps> = ({
 
     try {
       const [tokensRes, nodesRes] = await Promise.all([
-        fetch(`/api/projects/${p.id}/swarm/tokens`),
-        fetch(`/api/projects/${p.id}/swarm/nodes`),
+        authFetch(`/api/projects/${p.id}/swarm/tokens`),
+        authFetch(`/api/projects/${p.id}/swarm/nodes`),
       ]);
       if (tokensRes.ok) setSwarmTokens(await tokensRes.json());
       if (nodesRes.ok) setSwarmNodes(await nodesRes.json());
@@ -85,7 +87,7 @@ export const ProjectsManagementView: React.FC<ProjectsManagementViewProps> = ({
 
     setIsInitializingSwarm(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/swarm/init`, {
+      const res = await authFetch(`/api/projects/${projectId}/swarm/init`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ managerHostId: selectedManagerHostId }),
@@ -113,7 +115,7 @@ export const ProjectsManagementView: React.FC<ProjectsManagementViewProps> = ({
 
     setIsJoiningHost(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/swarm/join`, {
+      const res = await authFetch(`/api/projects/${projectId}/swarm/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workerHostId: selectedWorkerHostId, role: 'WORKER' }),
@@ -166,7 +168,7 @@ export const ProjectsManagementView: React.FC<ProjectsManagementViewProps> = ({
       const url = editingProject ? `/api/projects/${editingProject.id}` : '/api/projects';
       const method = editingProject ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -205,7 +207,7 @@ export const ProjectsManagementView: React.FC<ProjectsManagementViewProps> = ({
     if (!confirm(`Tem certeza que deseja excluir o projeto "${p.name}"?`)) return;
 
     try {
-      const res = await fetch(`/api/projects/${p.id}`, { method: 'DELETE' });
+      const res = await authFetch(`/api/projects/${p.id}`, { method: 'DELETE' });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error || 'Falha ao excluir projeto.');

@@ -268,7 +268,17 @@ function MainApp() {
         setDomains(await domainsRes.json());
       }
       if (projectsRes.ok) {
-        setProjects(await projectsRes.json());
+        const projs: Project[] = await projectsRes.json();
+        setProjects(projs);
+        setSelectedProjectId((prev) => {
+          if (prev && projs.some((p) => p.id === prev)) return prev;
+          const defaultProj = projs.find((p) => p.isDefault) || projs[0];
+          if (defaultProj) {
+            localStorage.setItem('ddm_selected_project', defaultProj.id);
+            return defaultProj.id;
+          }
+          return null;
+        });
       }
       if (hostsRes.ok) {
         setHosts(await hostsRes.json());

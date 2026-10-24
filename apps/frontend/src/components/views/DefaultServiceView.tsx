@@ -45,7 +45,9 @@ export const DefaultServiceView: React.FC<DefaultServiceViewProps> = ({
 
   // Simulate routing resolution
   const cleanSim = simulatedDomain.trim().toLowerCase();
-  const directMatch = domains.find((d) => d.isActive && d.domainName.toLowerCase() === cleanSim);
+  const directMatch = domains.find(
+    (d) => d.isActive && (d.domainName || '').toLowerCase() === cleanSim
+  );
   const simulatedDestination = directMatch
     ? {
         type: 'DIRECT_MATCH',

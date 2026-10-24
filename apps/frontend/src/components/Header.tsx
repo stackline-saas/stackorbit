@@ -21,6 +21,7 @@ const tabTitles: Record<ActiveTab, { title: string; category: string }> = {
   containers: { title: 'Docker Engine Containers', category: 'Infraestrutura' },
   traefik: { title: 'Configuração do Traefik', category: 'Proxy Reverso' },
   cloudflare: { title: 'Cloudflare & SSL Origem', category: 'Segurança' },
+  integrations: { title: 'Integrações Git', category: 'DevOps' },
   audit: { title: 'Auditoria de Alterações', category: 'Governança' },
   tests: { title: 'Validação e Testes', category: 'Diagnóstico' },
   settings: { title: 'Configurações do Sistema', category: 'Sistema' },
@@ -32,7 +33,6 @@ export const Header: React.FC<HeaderProps> = ({
   isRefreshing,
   onApplyTraefik,
   isApplyingTraefik,
-  projectSelectorSlot,
 }) => {
   const current = tabTitles[currentTab] || { title: 'Painel', category: 'Visão Geral' };
 

@@ -61,10 +61,11 @@ export const DomainsView: React.FC<DomainsViewProps> = ({
   };
 
   const filtered = domains.filter((d) => {
+    const sTerm = searchTerm.toLowerCase();
     const matchesSearch =
-      d.domainName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      d.service?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      d.service?.containerName.toLowerCase().includes(searchTerm.toLowerCase());
+      (d.domainName || '').toLowerCase().includes(sTerm) ||
+      (d.service?.name || '').toLowerCase().includes(sTerm) ||
+      (d.service?.containerName || '').toLowerCase().includes(sTerm);
 
     const matchesService = filterService === 'all' ? true : d.serviceId === filterService;
     return matchesSearch && matchesService;

@@ -26,6 +26,8 @@ export interface Service {
   gitRepoUrl?: string;
   gitBranch?: string;
   dockerfilePath?: string;
+  gitToken?: string;
+  buildContext?: string;
   envVars?: string;
   webhookSecret?: string;
   lastBuiltAt?: string;

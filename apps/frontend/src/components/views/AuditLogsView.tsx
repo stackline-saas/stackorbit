@@ -39,9 +39,9 @@ export const AuditLogsView: React.FC = () => {
 
   const filtered = logs.filter((log) => {
     const matchesSearch =
-      log.details.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      log.action.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      log.userName.toLowerCase().includes(searchTerm.toLowerCase());
+      (log.details || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (log.action || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (log.userName || '').toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesEntity = entityFilter === 'ALL' ? true : log.entityType === entityFilter;
     return matchesSearch && matchesEntity;

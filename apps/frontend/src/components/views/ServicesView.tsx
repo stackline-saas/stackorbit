@@ -17,6 +17,7 @@ import {
   Terminal,
   Boxes,
   RefreshCw,
+  Server,
 } from 'lucide-react';
 import type { Service } from '../../types/index.ts';
 

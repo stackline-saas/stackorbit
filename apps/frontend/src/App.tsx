@@ -11,6 +11,7 @@ import {
 import { Server, ArrowLeft } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext.tsx';
 import { NotificationProvider, useNotification } from './context/NotificationContext.tsx';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { Sidebar, type ActiveTab } from './components/Sidebar.tsx';
 import { Header } from './components/Header.tsx';
 import { LoginView } from './components/LoginView.tsx';
@@ -681,10 +682,11 @@ function MainApp() {
         {/* View Content Area with Declarative Routing */}
         <main className="flex-1 overflow-y-auto p-6">
           <div className="max-w-7xl mx-auto">
-            <Routes>
-              {/* Home & Login Redirects */}
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route path="/login" element={<Navigate to="/dashboard" replace />} />
+            <ErrorBoundary>
+              <Routes>
+                {/* Home & Login Redirects */}
+                <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                <Route path="/login" element={<Navigate to="/dashboard" replace />} />
 
               {/* Multi-Project & Hosts Management */}
               <Route
@@ -950,8 +952,9 @@ function MainApp() {
               {/* Catch-all fallback route */}
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
-          </div>
-        </main>
+          </ErrorBoundary>
+        </div>
+      </main>
       </div>
 
       {/* Global Modals */}

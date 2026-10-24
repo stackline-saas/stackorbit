@@ -52,20 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
 
-  // 1. Itens Globais e Comuns a todos os projetos
-  const globalNavigationItems = [
-    { id: 'dashboard' as ActiveTab, path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'projects' as ActiveTab, path: '/projects', label: 'Projetos', icon: FolderGit2, count: projects.length },
-    { id: 'hosts' as ActiveTab, path: '/hosts', label: 'Servidores & Nós', icon: HardDrive, count: hosts.length },
-    { id: 'integrations' as ActiveTab, path: '/integrations', label: 'Integrações Git', icon: GitBranch },
-    { id: 'traefik' as ActiveTab, path: '/traefik', label: 'Traefik & Proxy', icon: Route },
-    { id: 'cloudflare' as ActiveTab, path: '/cloudflare', label: 'Cloudflare & SSL', icon: ShieldCheck },
-    { id: 'audit' as ActiveTab, path: '/audit', label: 'Auditoria & Logs', icon: FileText },
-    { id: 'tests' as ActiveTab, path: '/tests', label: 'Testes do Sistema', icon: CheckSquare },
-    { id: 'settings' as ActiveTab, path: '/settings', label: 'Configurações', icon: Settings },
-  ];
-
-  // 2. Itens Escopados ao Projeto Selecionado (ou consolidados)
+  // 1. Itens Escopados ao Projeto Selecionado (ou consolidados)
   const projectNavigationItems = [
     {
       id: 'services' as ActiveTab,
@@ -93,6 +80,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Serviço Padrão (Fallback)',
       icon: Compass,
     },
+  ];
+
+  // 2. Itens Globais e Comuns a todos os projetos
+  const globalNavigationItems = [
+    { id: 'dashboard' as ActiveTab, path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'projects' as ActiveTab, path: '/projects', label: 'Projetos', icon: FolderGit2, count: projects.length },
+    { id: 'hosts' as ActiveTab, path: '/hosts', label: 'Servidores & Nós', icon: HardDrive, count: hosts.length },
+    { id: 'integrations' as ActiveTab, path: '/integrations', label: 'Integrações Git', icon: GitBranch },
+    { id: 'traefik' as ActiveTab, path: '/traefik', label: 'Traefik & Proxy', icon: Route },
+    { id: 'cloudflare' as ActiveTab, path: '/cloudflare', label: 'Cloudflare & SSL', icon: ShieldCheck },
+    { id: 'audit' as ActiveTab, path: '/audit', label: 'Auditoria & Logs', icon: FileText },
+    { id: 'tests' as ActiveTab, path: '/tests', label: 'Testes do Sistema', icon: CheckSquare },
+    { id: 'settings' as ActiveTab, path: '/settings', label: 'Configurações', icon: Settings },
   ];
 
   const checkIsActive = (path: string) => {
@@ -165,24 +165,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </span>
       </div>
 
-      {/* Nav List com Divisão Visível */}
+      {/* Nav List com Ordem: Projeto Ativo EM CIMA, Global EM BAIXO */}
       <nav className="flex-1 p-2.5 space-y-3 overflow-y-auto">
-        {/* PARTE 1: GERAL / COMUM ENTRE TODAS */}
+        {/* PARTE 1 (EM CIMA): PROJETO ATIVO & RECURSOS DO PROJETO */}
         <div>
-          <div className="px-2.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Administração Global
-          </div>
-          <div className="space-y-0.5">
-            {globalNavigationItems.map(renderNavLink)}
-          </div>
-        </div>
-
-        {/* PARTE 2: SEPARAÇÃO E PROJETO ATIVO */}
-        <div className="pt-2 border-t border-slate-800">
           <div className="flex items-center justify-between px-2.5 pb-1.5">
             <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
               <span className={`w-1.5 h-1.5 rounded-full ${selectedProject ? 'bg-blue-500 animate-pulse' : 'bg-slate-500'}`} />
-              <span>{selectedProject ? 'Projeto Ativo' : 'Recursos por Projeto'}</span>
+              <span>{selectedProject ? 'Projeto Ativo' : 'Projeto Selecionado'}</span>
             </span>
 
             {selectedProject && (
@@ -267,7 +257,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </span>
               </div>
               <p className="text-[10px] text-slate-400 leading-tight mb-2">
-                Exibindo todos os serviços de todos os projetos.
+                Exibindo recursos de todos os projetos.
               </p>
 
               {projects.length > 0 && (
@@ -276,7 +266,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onChange={(e) => onSelectProject && onSelectProject(e.target.value || null)}
                   className="w-full bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-md text-[11px] text-slate-400 px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer"
                 >
-                  <option value="">Filtrar por projeto...</option>
+                  <option value="">Selecionar um projeto...</option>
                   {projects.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name} ({p.type})
@@ -290,6 +280,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Links restritos ao projeto ativo */}
           <div className="space-y-0.5">
             {projectNavigationItems.map(renderNavLink)}
+          </div>
+        </div>
+
+        {/* PARTE 2 (EM BAIXO): ADMINISTRAÇÃO GLOBAL COM SEPARAÇÃO */}
+        <div className="pt-2 border-t border-slate-800">
+          <div className="px-2.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Administração Global
+          </div>
+          <div className="space-y-0.5">
+            {globalNavigationItems.map(renderNavLink)}
           </div>
         </div>
       </nav>

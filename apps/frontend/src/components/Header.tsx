@@ -8,7 +8,6 @@ interface HeaderProps {
   isRefreshing: boolean;
   onApplyTraefik: () => void;
   isApplyingTraefik: boolean;
-  projectSelectorSlot?: React.ReactNode;
 }
 
 const tabTitles: Record<ActiveTab, { title: string; category: string }> = {
@@ -39,14 +38,13 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="h-14 border-b border-slate-200 bg-white px-6 flex items-center justify-between gap-8 shrink-0">
-      {/* Zone 1: Breadcrumbs & Section Title & Project Selector */}
+      {/* Zone 1: Breadcrumbs & Section Title */}
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2 text-xs">
           <span className="text-slate-400 font-medium whitespace-nowrap">{current.category}</span>
           <span className="text-slate-300">/</span>
           <span className="text-slate-900 font-semibold text-sm whitespace-nowrap">{current.title}</span>
         </div>
-        {projectSelectorSlot}
       </div>
 
       {/* Zone 2: Informational context links */}

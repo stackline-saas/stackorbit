@@ -665,14 +665,6 @@ function MainApp() {
           isRefreshing={isRefreshing}
           onApplyTraefik={handleApplyTraefik}
           isApplyingTraefik={isApplyingTraefik}
-          projectSelectorSlot={
-            <ProjectSelector
-              projects={projects}
-              selectedProjectId={selectedProjectId}
-              onSelectProject={handleSelectProject}
-              onCreateProjectClick={() => navigate('/projects')}
-            />
-          }
         />
 
         {/* View Content Area with Declarative Routing */}

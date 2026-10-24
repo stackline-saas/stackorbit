@@ -437,8 +437,8 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
         {sourceType === 'GITHUB' && (
           <div className="space-y-6">
             {/* Account Status / Connect Bar */}
-            <div className="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between">
+            <div className="bg-white border border-slate-200 rounded-xl shadow-2xs">
+              <div className="px-5 py-3.5 border-b border-slate-100 bg-slate-50/70 rounded-t-xl flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <GitBranch className="w-4 h-4 text-blue-600" />
                   <span className="text-xs font-bold text-slate-900">Projetos do GitHub</span>
@@ -588,7 +588,7 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
 
                     {/* Combobox Dropdown Popover */}
                     {isComboboxOpen && (
-                      <div className="absolute left-0 right-0 top-full mt-1.5 z-30 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+                      <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white border border-slate-200 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-100">
                         {/* Search and Filters inside dropdown */}
                         <div className="p-3 border-b border-slate-100 bg-slate-50/70 space-y-2.5">
                           <div className="relative">

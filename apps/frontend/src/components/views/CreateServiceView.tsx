@@ -106,7 +106,8 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
   // Inspection & Docker params
   const [isInspecting, setIsInspecting] = useState(false);
   const [inspectionResult, setInspectionResult] = useState<ProjectInspectionResult | null>(null);
-  const [dockerfilePath, setDockerfilePath] = useState('Dockerfile');
+  const [definitionType, setDefinitionType] = useState<'compose' | 'dockerfile'>('compose');
+  const [dockerfilePath, setDockerfilePath] = useState('docker-compose.yml');
   const [buildContext, setBuildContext] = useState('.');
   const [gitRepoUrl, setGitRepoUrl] = useState('');
   const [gitToken, setGitToken] = useState('');
@@ -248,9 +249,22 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
       if (res.ok) {
         const data: ProjectInspectionResult = await res.json();
         setInspectionResult(data);
-        if (data.detectedDockerfile) {
+
+        // Prioritize Docker Compose if detected
+        if (data.hasCompose && data.detectedComposeFile) {
+          setDefinitionType('compose');
+          setDockerfilePath(data.detectedComposeFile);
+        } else if (data.hasDockerfile && data.detectedDockerfile) {
+          setDefinitionType('dockerfile');
           setDockerfilePath(data.detectedDockerfile);
+        } else if (data.detectedComposeFile) {
+          setDefinitionType('compose');
+          setDockerfilePath(data.detectedComposeFile);
+        } else {
+          setDefinitionType('dockerfile');
+          setDockerfilePath(data.detectedDockerfile || 'Dockerfile');
         }
+
         if (data.suggestedBuildContext) {
           setBuildContext(data.suggestedBuildContext);
         }
@@ -734,13 +748,13 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
             </div>
 
             {/* Selected Project Settings & Detection Details */}
-            {selectedRepo && (
+            {(selectedRepo || (isManualGitMode && gitRepoUrl.trim().length > 0)) && (
               <div className="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden space-y-4">
                 <div className="px-5 py-3.5 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-blue-600" />
                     <span className="text-xs font-bold text-slate-900">
-                      Configuração Automática de Build: {selectedRepo.name}
+                      Configuração de Build: {selectedRepo ? selectedRepo.name : 'Repositório Git'}
                     </span>
                   </div>
 
@@ -754,31 +768,73 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
                 <div className="p-5 space-y-5">
                   {/* Inspection Summary Banner */}
                   {inspectionResult && (
-                    <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-3">
-                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                      <div className="text-xs text-emerald-950 space-y-1">
-                        <div className="font-bold flex items-center gap-2">
-                          <span>Projeto analisado com sucesso!</span>
-                          <span className="px-1.5 py-0.2 rounded bg-emerald-200/60 text-emerald-900 text-[10px]">
-                            {inspectionResult.detectedType}
-                          </span>
+                    <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl flex items-start gap-3">
+                      <Sparkles className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                      <div className="text-xs text-slate-800 space-y-1.5 flex-1">
+                        <div className="font-bold flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2">
+                            <span>Repositório analisado com sucesso!</span>
+                            <span className="px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 text-[10px] font-semibold">
+                              {inspectionResult.detectedType}
+                            </span>
+                          </div>
+                          {inspectionResult.hasCompose ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md">
+                              🐳 Docker Compose Detectado
+                            </span>
+                          ) : inspectionResult.hasDockerfile ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                              📄 Dockerfile Detectado
+                            </span>
+                          ) : null}
                         </div>
-                        <p className="text-[11px] text-emerald-800">
-                          {inspectionResult.hasDockerfile ? (
+                        <p className="text-[11px] text-slate-600">
+                          {inspectionResult.hasCompose ? (
+                            <>
+                              Arquivo Docker Compose detectado em{' '}
+                              <code className="font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-blue-200 text-blue-900">
+                                {inspectionResult.detectedComposeFile}
+                              </code>
+                              . Os containers serão orquestrados através do <code>docker compose</code>.
+                            </>
+                          ) : inspectionResult.hasDockerfile ? (
                             <>
                               Dockerfile detectado em{' '}
-                              <code className="font-mono font-bold bg-white/70 px-1 py-0.2 rounded">
+                              <code className="font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-blue-200 text-blue-900">
                                 {inspectionResult.detectedDockerfile}
-                              </code>{' '}
-                              com porta sugerida <code className="font-bold">{internalPort}</code>.
+                              </code>
+                              . O container será compilado e implantado individualmente.
                             </>
                           ) : (
                             <>
-                              Nenhum Dockerfile encontrado na raiz. Será utilizado o caminho padrão{' '}
-                              <code className="font-mono">Dockerfile</code>.
+                              Nenhum arquivo Dockerfile ou Docker Compose encontrado na raiz. Você pode definir o caminho manualmente abaixo.
                             </>
                           )}
                         </p>
+
+                        {/* Compose Candidates Chip Selector */}
+                        {inspectionResult.composeCandidates && inspectionResult.composeCandidates.length > 1 && (
+                          <div className="flex items-center gap-1.5 pt-1 flex-wrap">
+                            <span className="text-[10px] text-slate-500 font-medium">Arquivos Compose disponíveis:</span>
+                            {inspectionResult.composeCandidates.map((c) => (
+                              <button
+                                key={c}
+                                type="button"
+                                onClick={() => {
+                                  setDefinitionType('compose');
+                                  setDockerfilePath(c);
+                                }}
+                                className={`text-[10px] font-mono px-2 py-0.5 rounded border transition-colors ${
+                                  dockerfilePath === c && definitionType === 'compose'
+                                    ? 'bg-blue-600 text-white border-blue-600 font-bold'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                }`}
+                              >
+                                {c}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -793,32 +849,38 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
                           <RefreshCw className="w-3 h-3 animate-spin text-slate-400" />
                         )}
                       </label>
-                      <select
-                        value={selectedBranch}
-                        onChange={(e) => handleBranchChange(e.target.value)}
-                        className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                      >
-                        <optgroup label="Branches">
-                          {branches.length > 0 ? (
-                            branches.map((b) => (
+                      {branches.length > 0 ? (
+                        <select
+                          value={selectedBranch}
+                          onChange={(e) => handleBranchChange(e.target.value)}
+                          className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                        >
+                          <optgroup label="Branches">
+                            {branches.map((b) => (
                               <option key={b.name} value={b.name}>
-                                {b.name} {b.name === selectedRepo.defaultBranch ? '⭐ (padrão)' : ''}
-                              </option>
-                            ))
-                          ) : (
-                            <option value={selectedBranch}>{selectedBranch}</option>
-                          )}
-                        </optgroup>
-                        {tags.length > 0 && (
-                          <optgroup label="Tags de Versão">
-                            {tags.map((t) => (
-                              <option key={t.name} value={t.name}>
-                                tag: {t.name}
+                                {b.name} {b.name === selectedRepo?.defaultBranch ? '⭐ (padrão)' : ''}
                               </option>
                             ))}
                           </optgroup>
-                        )}
-                      </select>
+                          {tags.length > 0 && (
+                            <optgroup label="Tags de Versão">
+                              {tags.map((t) => (
+                                <option key={t.name} value={t.name}>
+                                  tag: {t.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={selectedBranch}
+                          onChange={(e) => setSelectedBranch(e.target.value)}
+                          placeholder="main"
+                          className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                        />
+                      )}
                       <p className="text-[11px] text-slate-400 mt-1">
                         A cada commit nesta branch, o Worker fará o build e deploy automaticamente.
                       </p>
@@ -845,6 +907,71 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
                     </div>
                   </div>
 
+                  {/* Definition Type Selector & File Path */}
+                  <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <Layers className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Modo de Definição do Serviço</span>
+                      </label>
+                      <div className="flex items-center gap-1 bg-slate-200/70 p-0.5 rounded-lg text-xs font-medium">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDefinitionType('compose');
+                            if (dockerfilePath === 'Dockerfile' || (!dockerfilePath.endsWith('.yml') && !dockerfilePath.endsWith('.yaml'))) {
+                              setDockerfilePath(inspectionResult?.detectedComposeFile || 'docker-compose.yml');
+                            }
+                          }}
+                          className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+                            definitionType === 'compose'
+                              ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          <span>🐳 Docker Compose (Stack)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDefinitionType('dockerfile');
+                            if (dockerfilePath.endsWith('.yml') || dockerfilePath.endsWith('.yaml')) {
+                              setDockerfilePath(inspectionResult?.detectedDockerfile || 'Dockerfile');
+                            }
+                          }}
+                          className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+                            definitionType === 'dockerfile'
+                              ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          <span>📄 Dockerfile Individual</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        {definitionType === 'compose'
+                          ? 'Caminho do Arquivo Docker Compose (ex: docker-compose.yml ou infra/docker-compose.yml)'
+                          : 'Caminho do Dockerfile (ex: Dockerfile ou docker/Dockerfile)'}
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={dockerfilePath}
+                        onChange={(e) => setDockerfilePath(e.target.value)}
+                        placeholder={definitionType === 'compose' ? 'docker-compose.yml ou infra/docker-compose.yml' : 'Dockerfile'}
+                        className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      />
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        {definitionType === 'compose'
+                          ? 'O Worker executará `docker compose up -d --build`, levantará todos os containers da stack e os conectará à rede proxy-net.'
+                          : 'O Worker compilará a imagem usando o Dockerfile e executará o container principal na rede proxy-net.'}
+                      </p>
+                    </div>
+                  </div>
+
                   {/* Toggle Advanced Build Options */}
                   <div className="pt-2 border-t border-slate-100">
                     <button
@@ -856,7 +983,7 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
                       <span>
                         {showAdvancedGitSettings
                           ? 'Ocultar configurações avançadas de build'
-                          : 'Ajustar Dockerfile, Contexto de Build e Variáveis de Ambiente'}
+                          : 'Ajustar Contexto de Build, Token PAT e Variáveis de Ambiente'}
                       </span>
                       <ChevronDown
                         className={`w-3.5 h-3.5 transition-transform ${
@@ -868,36 +995,24 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
 
                   {showAdvancedGitSettings && (
                     <div className="space-y-4 pt-2">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-700 mb-1">
-                            Caminho do Dockerfile
-                          </label>
-                          <input
-                            type="text"
-                            value={dockerfilePath}
-                            onChange={(e) => setDockerfilePath(e.target.value)}
-                            placeholder="Dockerfile"
-                            className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-700 mb-1">
-                            Contexto do Build (Root Directory)
-                          </label>
-                          <input
-                            type="text"
-                            value={buildContext}
-                            onChange={(e) => setBuildContext(e.target.value)}
-                            placeholder="."
-                            className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Contexto do Build (Root Directory)
+                        </label>
+                        <input
+                          type="text"
+                          value={buildContext}
+                          onChange={(e) => setBuildContext(e.target.value)}
+                          placeholder="."
+                          className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          Diretório base do repositório a ser considerado como contexto de compilação (padrão: <code>.</code>).
+                        </p>
                       </div>
 
                       {/* PAT Token for Private Repos */}
-                      {selectedRepo.private && (
+                      {(selectedRepo ? selectedRepo.private : true) && (
                         <div>
                           <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
                             <Key className="w-3.5 h-3.5 text-amber-500" />

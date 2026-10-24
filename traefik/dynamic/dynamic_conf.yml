@@ -1,6 +1,6 @@
 # ===================================================================
 # TRAEFIK DYNAMIC CONFIGURATION - GERADO AUTOMATICAMENTE PELO BACKEND
-# Gerado em: 2026-10-24T12:30:01.004Z
+# Gerado em: 2026-10-24T14:04:17.851Z
 # ===================================================================
 http:
   routers:

@@ -115,6 +115,11 @@ export interface GitHubBranchItem {
 export interface ProjectInspectionResult {
   hasDockerfile: boolean;
   detectedDockerfile: string;
+  hasCompose?: boolean;
+  detectedComposeFile?: string;
+  definitionType?: 'compose' | 'dockerfile';
+  composeCandidates?: string[];
+  dockerfileCandidates?: string[];
   suggestedBuildContext: string;
   suggestedPort: number;
   detectedType: string;

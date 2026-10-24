@@ -266,11 +266,19 @@ export class DockerService {
     }
   }
 
-  public async attachToNetwork(containerNameOrId: string, networkName = config.networkName): Promise<void> {
+  public async attachToNetwork(
+    containerNameOrId: string,
+    networkName = config.networkName,
+    aliases?: string[]
+  ): Promise<void> {
     try {
       await this.ensureNetwork(networkName);
       const network = this.docker.getNetwork(networkName);
-      await network.connect({ Container: containerNameOrId });
+      const connectOpts: any = { Container: containerNameOrId };
+      if (aliases && aliases.length > 0) {
+        connectOpts.EndpointConfig = { Aliases: aliases };
+      }
+      await network.connect(connectOpts);
     } catch (err: any) {
       if (err.statusCode === 409 || err.message?.includes('already exists in network') || err.message?.includes('already connected')) {
         return;

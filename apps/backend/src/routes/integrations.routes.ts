@@ -418,16 +418,37 @@ integrationsRouter.get('/github/repos/:owner/:repo/inspect', async (req, res) =>
     );
 
     let detectedDockerfile = 'Dockerfile';
+    let detectedComposeFile = 'docker-compose.yml';
     let suggestedBuildContext = '.';
     let suggestedPort = 3000;
     let detectedType = 'Docker';
     let hasDockerfile = false;
+    let hasCompose = false;
 
     if (treeRes.ok) {
       const treeData = (await treeRes.json()) as any;
       const files: string[] = (treeData.tree || []).map((item: any) => item.path);
 
-      // 1. Search for Dockerfile
+      // 1. Search for Docker Compose files
+      const composeCandidates = files.filter(
+        (f) =>
+          f === 'docker-compose.yml' ||
+          f === 'docker-compose.yaml' ||
+          f === 'compose.yml' ||
+          f === 'compose.yaml' ||
+          f.endsWith('/docker-compose.yml') ||
+          f.endsWith('/docker-compose.yaml') ||
+          f.endsWith('/compose.yml') ||
+          f.endsWith('/compose.yaml')
+      );
+
+      if (composeCandidates.length > 0) {
+        hasCompose = true;
+        const rootCompose = composeCandidates.find((f) => f === 'docker-compose.yml' || f === 'compose.yml');
+        detectedComposeFile = rootCompose || composeCandidates[0];
+      }
+
+      // 2. Search for Dockerfile
       const dockerfileCandidates = files.filter(
         (f) =>
           f === 'Dockerfile' ||
@@ -450,7 +471,12 @@ integrationsRouter.get('/github/repos/:owner/:repo/inspect', async (req, res) =>
         }
       }
 
-      // 2. Detect project type and suggest port
+      // Set detected type
+      if (hasCompose) {
+        detectedType = 'Docker Compose Stack';
+      }
+
+      // 3. Detect project type and suggest port
       if (files.some((f) => f === 'package.json' || f.endsWith('/package.json'))) {
         detectedType = 'Node.js / JavaScript';
         suggestedPort = 3000;
@@ -493,8 +519,12 @@ integrationsRouter.get('/github/repos/:owner/:repo/inspect', async (req, res) =>
     }
 
     return res.json({
+      hasCompose,
+      detectedComposeFile,
       hasDockerfile,
       detectedDockerfile,
+      definitionType: hasCompose ? 'compose' : 'dockerfile',
+      suggestedDefinitionFile: hasCompose ? detectedComposeFile : detectedDockerfile,
       suggestedBuildContext,
       suggestedPort,
       detectedType,

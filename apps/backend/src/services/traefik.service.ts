@@ -3,6 +3,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { prisma } from '../db.js';
 import { config } from '../config.js';
+import { dockerService } from './docker.service.js';
 
 export interface TraefikHttpRouter {
   rule: string;
@@ -302,6 +303,9 @@ export class TraefikService {
     fs.writeFileSync(tempFile, yamlContent, 'utf-8');
     fs.renameSync(tempFile, this.configPath);
 
+    // Sync to Docker volume directly if Traefik is running in Docker and configPath is external/local
+    await this.syncToDockerContainer(yamlContent);
+
     // Save revision in database
     const lastConfig = await prisma.proxyConfiguration.findFirst({
       orderBy: { version: 'desc' },
@@ -322,6 +326,36 @@ export class TraefikService {
       yaml: yamlContent,
       path: this.configPath,
     };
+  }
+
+  private async syncToDockerContainer(yamlContent: string): Promise<boolean> {
+    try {
+      const docker = await dockerService.getClient();
+      const candidateNames = ['domain-manager-api', 'domain-manager-worker'];
+      const b64 = Buffer.from(yamlContent, 'utf-8').toString('base64');
+      const cmd = `echo '${b64}' | base64 -d > /app/traefik/dynamic/dynamic_conf.yml`;
+
+      for (const name of candidateNames) {
+        try {
+          const container = docker.getContainer(name);
+          const inspect = await container.inspect();
+          if (inspect.State?.Running) {
+            const exec = await container.exec({
+              Cmd: ['sh', '-c', cmd],
+              AttachStdout: false,
+              AttachStderr: true,
+            });
+            await exec.start({ Detach: false });
+            return true;
+          }
+        } catch {
+          // try next candidate
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[TraefikService] Não foi possível sincronizar dynamic_conf.yml via Docker: ${err.message}`);
+    }
+    return false;
   }
 
   public getRawConfig(): { yaml: string; exists: boolean } {

@@ -1,6 +1,6 @@
 # ===================================================================
 # TRAEFIK DYNAMIC CONFIGURATION - GERADO AUTOMATICAMENTE PELO BACKEND
-# Gerado em: 2026-10-24T14:14:23.662Z
+# Gerado em: 2026-10-24T15:09:12.894Z
 # ===================================================================
 http:
   routers:
@@ -64,6 +64,26 @@ http:
       middlewares:
         - cloudflare-realip
       tls: {}
+    router-api-example:
+      rule: Host(`api.example`)
+      entryPoints:
+        - websecure
+        - web
+      service: service-api-example
+      priority: 100
+      middlewares:
+        - cloudflare-realip
+      tls: {}
+    router-web-example:
+      rule: Host(`web.example`)
+      entryPoints:
+        - websecure
+        - web
+      service: service-web-example
+      priority: 100
+      middlewares:
+        - cloudflare-realip
+      tls: {}
     router-default-fallback:
       rule: HostRegexp(`^.+$`)
       entryPoints:
@@ -104,6 +124,19 @@ http:
       loadBalancer:
         servers:
           - url: http://infopulse-mailpit-1:8025
+        passHostHeader: true
+    service-api-example:
+      loadBalancer:
+        servers:
+          - url: http://example-api-1:3000
+        passHostHeader: true
+    service-web-example:
+      loadBalancer:
+        servers:
+          - url: http://example:80
+          - url: http://example-frontend-1-1:80
+          - url: http://example-frontend-3-1:80
+          - url: http://example-frontend-2-1:80
         passHostHeader: true
     service-web-portal:
       loadBalancer:

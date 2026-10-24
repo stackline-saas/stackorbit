@@ -3,6 +3,49 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { prisma } from '@docker-domain/database';
 
+export interface TargetServer {
+  container: string;
+  port: number;
+}
+
+export function parseDomainTargets(
+  targetContainer: string | null | undefined,
+  targetPort: number | null | undefined,
+  defaultContainer: string,
+  defaultPort: number
+): TargetServer[] {
+  if (!targetContainer) {
+    return [{ container: defaultContainer, port: targetPort || defaultPort }];
+  }
+
+  const trimmed = targetContainer.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((item: any) => ({
+          container: typeof item === 'string' ? item : item.container || defaultContainer,
+          port: item.port ? Number(item.port) : targetPort || defaultPort,
+        }));
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (trimmed.includes(',')) {
+    return trimmed.split(',').map((part) => {
+      const [c, p] = part.trim().split(':');
+      return {
+        container: c,
+        port: p ? Number(p) : targetPort || defaultPort,
+      };
+    });
+  }
+
+  return [{ container: trimmed, port: targetPort || defaultPort }];
+}
+
 export class TraefikService {
   private configPath: string;
 
@@ -28,16 +71,32 @@ export class TraefikService {
     const httpServices: Record<string, any> = {};
 
     for (const service of services) {
-      const traefikServiceName = `service-${service.containerName}`;
-
-      httpServices[traefikServiceName] = {
-        loadBalancer: {
-          servers: [{ url: `http://${service.containerName}:${service.internalPort}` }],
-          passHostHeader: true,
-        },
-      };
-
       for (const domain of service.domains) {
+        const targets = parseDomainTargets(
+          domain.targetContainer,
+          domain.targetPort,
+          service.containerName,
+          service.internalPort
+        );
+
+        const traefikServiceName = `service-${domain.domainName.replace(/[^a-zA-Z0-9-]/g, '-')}`;
+
+        httpServices[traefikServiceName] = {
+          loadBalancer: {
+            servers: targets.map((t) => ({ url: `http://${t.container}:${t.port}` })),
+            passHostHeader: true,
+            ...(domain.healthCheckPath
+              ? {
+                  healthCheck: {
+                    path: domain.healthCheckPath.startsWith('/') ? domain.healthCheckPath : `/${domain.healthCheckPath}`,
+                    interval: '5s',
+                    timeout: '2s',
+                  },
+                }
+              : {}),
+          },
+        };
+
         const routerKey = `router-${domain.domainName.replace(/[^a-zA-Z0-9-]/g, '-')}`;
         routers[routerKey] = {
           rule: `Host(\`${domain.domainName}\`)`,

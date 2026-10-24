@@ -2765,7 +2765,12 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                       onClick={() => {
                         setDomainRoutingMode('load_balancer');
                         if (lbSelectedContainers.length === 0) {
-                          setLbSelectedContainers([containerName]);
+                          if (containersList.length > 0) {
+                            const primary = containersList.find((c) => c.isPrimary) || containersList[0];
+                            setLbSelectedContainers([primary.name]);
+                          } else {
+                            setLbSelectedContainers([containerName]);
+                          }
                         }
                       }}
                       className={`px-3 py-1 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1.5 ${

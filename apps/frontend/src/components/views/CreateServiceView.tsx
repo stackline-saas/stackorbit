@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -74,6 +74,27 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
   const [repoSearch, setRepoSearch] = useState('');
   const [repoVisibilityFilter, setRepoVisibilityFilter] = useState<'all' | 'public' | 'private'>('all');
+  const [isComboboxOpen, setIsComboboxOpen] = useState(false);
+  const comboboxRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Click outside to close combobox
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (comboboxRef.current && !comboboxRef.current.contains(e.target as Node)) {
+        setIsComboboxOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Auto-focus search input when combobox opens
+  useEffect(() => {
+    if (isComboboxOpen) {
+      setTimeout(() => searchInputRef.current?.focus(), 60);
+    }
+  }, [isComboboxOpen]);
 
   // Selected Repository & Branches
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepoItem | null>(null);
@@ -494,130 +515,203 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
                     </div>
                   </div>
                 ) : (
-                  /* Connected State: Repository Search & List */
-                  <div className="space-y-4">
-                    {/* Search and Filters */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="relative flex-1">
-                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="text"
-                          placeholder="Pesquisar projetos nos seus repositórios do GitHub..."
-                          value={repoSearch}
-                          onChange={(e) => setRepoSearch(e.target.value)}
-                          className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  /* Connected State: Repository Combobox Selector */
+                  <div className="relative" ref={comboboxRef}>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
+                      <span>Selecionar Repositório do GitHub <span className="text-rose-500">*</span></span>
+                      {repos.length > 0 && (
+                        <span className="text-[10px] text-slate-400 font-normal">
+                          {repos.length} projetos disponíveis
+                        </span>
+                      )}
+                    </label>
+
+                    {/* Combobox Input Trigger */}
+                    <button
+                      type="button"
+                      onClick={() => setIsComboboxOpen(!isComboboxOpen)}
+                      className={`w-full px-3.5 py-2.5 rounded-xl border text-left flex items-center justify-between gap-3 transition-all ${
+                        isComboboxOpen
+                          ? 'border-blue-500 ring-2 ring-blue-500/20 bg-white'
+                          : selectedRepo
+                          ? 'border-slate-300 bg-white hover:border-slate-400'
+                          : 'border-slate-300 bg-slate-50/50 hover:bg-white text-slate-400'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <GitBranch
+                          className={`w-4 h-4 shrink-0 ${
+                            selectedRepo ? 'text-blue-600' : 'text-slate-400'
+                          }`}
+                        />
+                        {selectedRepo ? (
+                          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                            <span className="font-bold text-xs text-slate-900 font-mono truncate">
+                              {selectedRepo.fullName}
+                            </span>
+                            {selectedRepo.private ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.2 rounded shrink-0">
+                                <Lock className="w-2.5 h-2.5" />
+                                Privado
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded border border-slate-200 shrink-0">
+                                Público
+                              </span>
+                            )}
+                            {selectedRepo.language && (
+                              <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded shrink-0">
+                                {selectedRepo.language}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400">
+                            Clique para pesquisar e escolher um projeto...
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 text-slate-400">
+                        {selectedRepo && (
+                          <span className="text-[11px] text-blue-600 font-semibold hover:underline">
+                            Trocar
+                          </span>
+                        )}
+                        <ChevronDown
+                          className={`w-4 h-4 transition-transform ${
+                            isComboboxOpen ? 'rotate-180 text-blue-600' : ''
+                          }`}
                         />
                       </div>
+                    </button>
 
-                      <div className="flex items-center gap-1 self-start sm:self-auto bg-slate-100 p-1 rounded-lg">
-                        <button
-                          type="button"
-                          onClick={() => setRepoVisibilityFilter('all')}
-                          className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-colors ${
-                            repoVisibilityFilter === 'all'
-                              ? 'bg-white text-slate-900 shadow-2xs'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          Todos ({repos.length})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setRepoVisibilityFilter('public')}
-                          className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-colors ${
-                            repoVisibilityFilter === 'public'
-                              ? 'bg-white text-slate-900 shadow-2xs'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          Públicos
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setRepoVisibilityFilter('private')}
-                          className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-colors ${
-                            repoVisibilityFilter === 'private'
-                              ? 'bg-white text-slate-900 shadow-2xs'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          Privados
-                        </button>
+                    {/* Combobox Dropdown Popover */}
+                    {isComboboxOpen && (
+                      <div className="absolute left-0 right-0 top-full mt-1.5 z-30 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+                        {/* Search and Filters inside dropdown */}
+                        <div className="p-3 border-b border-slate-100 bg-slate-50/70 space-y-2.5">
+                          <div className="relative">
+                            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                            <input
+                              ref={searchInputRef}
+                              type="text"
+                              placeholder="Pesquisar projetos nos seus repositórios do GitHub..."
+                              value={repoSearch}
+                              onChange={(e) => setRepoSearch(e.target.value)}
+                              className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                            />
+                          </div>
+
+                          <div className="flex items-center justify-between text-[11px]">
+                            <div className="flex items-center gap-1 bg-slate-200/60 p-0.5 rounded-lg">
+                              <button
+                                type="button"
+                                onClick={() => setRepoVisibilityFilter('all')}
+                                className={`px-2 py-0.5 font-semibold rounded transition-colors ${
+                                  repoVisibilityFilter === 'all'
+                                    ? 'bg-white text-slate-900 shadow-2xs'
+                                    : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                              >
+                                Todos ({repos.length})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setRepoVisibilityFilter('public')}
+                                className={`px-2 py-0.5 font-semibold rounded transition-colors ${
+                                  repoVisibilityFilter === 'public'
+                                    ? 'bg-white text-slate-900 shadow-2xs'
+                                    : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                              >
+                                Públicos
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setRepoVisibilityFilter('private')}
+                                className={`px-2 py-0.5 font-semibold rounded transition-colors ${
+                                  repoVisibilityFilter === 'private'
+                                    ? 'bg-white text-slate-900 shadow-2xs'
+                                    : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                              >
+                                Privados
+                              </button>
+                            </div>
+
+                            <span className="text-slate-400">
+                              {filteredRepos.length} encontrado(s)
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Repositories Scrollable List */}
+                        <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+                          {isLoadingRepos ? (
+                            <div className="p-6 text-center text-slate-500 text-xs flex items-center justify-center gap-2">
+                              <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+                              <span>Carregando repositórios...</span>
+                            </div>
+                          ) : filteredRepos.length > 0 ? (
+                            filteredRepos.map((r) => {
+                              const isSelected = selectedRepo?.id === r.id;
+                              return (
+                                <button
+                                  key={r.id}
+                                  type="button"
+                                  onClick={() => {
+                                    handleSelectRepository(r);
+                                    setIsComboboxOpen(false);
+                                  }}
+                                  className={`w-full px-3.5 py-2.5 text-left flex items-center justify-between gap-3 transition-colors ${
+                                    isSelected ? 'bg-blue-50/80 text-blue-900' : 'hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-bold text-xs text-slate-900 font-mono truncate">
+                                        {r.fullName}
+                                      </span>
+                                      {r.private ? (
+                                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.2 rounded shrink-0">
+                                          <Lock className="w-2.5 h-2.5" />
+                                          Privado
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded border border-slate-200 shrink-0">
+                                          Público
+                                        </span>
+                                      )}
+                                      {r.language && (
+                                        <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded shrink-0">
+                                          {r.language}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {r.description && (
+                                      <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                        {r.description}
+                                      </p>
+                                    )}
+                                  </div>
+
+                                  {isSelected && (
+                                    <Check className="w-4 h-4 text-blue-600 shrink-0" />
+                                  )}
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <div className="p-6 text-center text-slate-400 text-xs">
+                              {repoSearch
+                                ? `Nenhum repositório encontrado para "${repoSearch}".`
+                                : 'Nenhum repositório localizado.'}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-
-                    {/* Repository Grid / Cards */}
-                    <div className="border border-slate-200 rounded-xl overflow-hidden max-h-72 overflow-y-auto divide-y divide-slate-100 bg-white">
-                      {isLoadingRepos ? (
-                        <div className="p-8 text-center text-slate-500 text-xs flex items-center justify-center gap-2">
-                          <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
-                          <span>Carregando seus repositórios do GitHub...</span>
-                        </div>
-                      ) : filteredRepos.length > 0 ? (
-                        filteredRepos.map((r) => {
-                          const isSelected = selectedRepo?.id === r.id;
-                          return (
-                            <button
-                              key={r.id}
-                              type="button"
-                              onClick={() => handleSelectRepository(r)}
-                              className={`w-full p-3.5 text-left flex items-start justify-between gap-3 transition-colors ${
-                                isSelected
-                                  ? 'bg-blue-50/80 border-l-4 border-l-blue-600'
-                                  : 'hover:bg-slate-50'
-                              }`}
-                            >
-                              <div className="space-y-1 min-w-0 flex-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="font-bold text-xs text-slate-900 font-mono">
-                                    {r.fullName}
-                                  </span>
-                                  {r.private ? (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.2 rounded">
-                                      <Lock className="w-2.5 h-2.5" />
-                                      Privado
-                                    </span>
-                                  ) : (
-                                    <span className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded border border-slate-200">
-                                      Público
-                                    </span>
-                                  )}
-                                  {r.language && (
-                                    <span className="text-[10px] font-medium text-slate-500 bg-slate-50 px-1.5 py-0.2 rounded">
-                                      {r.language}
-                                    </span>
-                                  )}
-                                </div>
-                                {r.description && (
-                                  <p className="text-[11px] text-slate-500 truncate">
-                                    {r.description}
-                                  </p>
-                                )}
-                              </div>
-
-                              <div className="shrink-0 flex items-center gap-2">
-                                {isSelected ? (
-                                  <span className="px-2.5 py-1 bg-blue-600 text-white rounded-md text-[11px] font-bold flex items-center gap-1">
-                                    <Check className="w-3 h-3" />
-                                    Selecionado
-                                  </span>
-                                ) : (
-                                  <span className="px-2 py-1 text-slate-500 hover:text-slate-900 text-[11px] font-semibold">
-                                    Escolher &rarr;
-                                  </span>
-                                )}
-                              </div>
-                            </button>
-                          );
-                        })
-                      ) : (
-                        <div className="p-8 text-center text-slate-400 text-xs">
-                          {repoSearch
-                            ? `Nenhum repositório encontrado para "${repoSearch}".`
-                            : 'Nenhum repositório localizado nesta conta.'}
-                        </div>
-                      )}
-                    </div>
+                    )}
                   </div>
                 )}
 

@@ -48,13 +48,14 @@ export function resolveTargetUrl(
   if (host && !host.isDefault && host.endpointUrl) {
     let hostAddress: string | null = null;
     try {
-      if (host.endpointUrl.startsWith('ssh://')) {
-        const u = new URL(host.endpointUrl);
-        hostAddress = u.hostname;
-      } else if (host.endpointUrl.startsWith('tcp://') || host.endpointUrl.startsWith('http://')) {
-        const u = new URL(host.endpointUrl.replace('tcp://', 'http://'));
-        hostAddress = u.hostname;
+      let raw = host.endpointUrl.trim();
+      if (raw.startsWith('ssh://')) {
+        raw = raw.replace('ssh://', 'http://');
+      } else if (!raw.includes('://')) {
+        raw = `http://${raw}`;
       }
+      const u = new URL(raw);
+      hostAddress = u.hostname;
     } catch {
       // fallback
     }

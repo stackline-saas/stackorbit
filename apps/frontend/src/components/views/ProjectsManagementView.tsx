@@ -12,6 +12,10 @@ import {
   Activity,
   AlertCircle,
   X,
+  Crown,
+  Copy,
+  CheckCircle2,
+  UserPlus,
 } from 'lucide-react';
 import type { Project, DockerHost } from '../../types';
 
@@ -40,6 +44,99 @@ export const ProjectsManagementView: React.FC<ProjectsManagementViewProps> = ({
   const [description, setDescription] = useState('');
   const [type, setType] = useState<'STANDALONE' | 'SWARM'>('STANDALONE');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Swarm Cluster Modal State
+  const [selectedSwarmProject, setSelectedSwarmProject] = useState<Project | null>(null);
+  const [swarmNodes, setSwarmNodes] = useState<any[]>([]);
+  const [swarmTokens, setSwarmTokens] = useState<{ managerToken?: string; workerToken?: string; managerHost?: any } | null>(null);
+  const [loadingSwarmData, setLoadingSwarmData] = useState(false);
+  const [isInitializingSwarm, setIsInitializingSwarm] = useState(false);
+  const [selectedManagerHostId, setSelectedManagerHostId] = useState('');
+  const [selectedWorkerHostId, setSelectedWorkerHostId] = useState('');
+  const [isJoiningHost, setIsJoiningHost] = useState(false);
+
+  const openSwarmModal = async (p: Project) => {
+    setSelectedSwarmProject(p);
+    setLoadingSwarmData(true);
+    const pHosts = hosts.filter((h) => h.projectId === p.id);
+    setSelectedManagerHostId(pHosts[0]?.id || '');
+    const nonManagerHost = pHosts.find((h) => !h.isSwarmManager);
+    setSelectedWorkerHostId(nonManagerHost?.id || '');
+
+    try {
+      const [tokensRes, nodesRes] = await Promise.all([
+        fetch(`/api/projects/${p.id}/swarm/tokens`),
+        fetch(`/api/projects/${p.id}/swarm/nodes`),
+      ]);
+      if (tokensRes.ok) setSwarmTokens(await tokensRes.json());
+      if (nodesRes.ok) setSwarmNodes(await nodesRes.json());
+    } catch (err: any) {
+      console.warn('Erro ao carregar dados do Swarm:', err.message);
+    } finally {
+      setLoadingSwarmData(false);
+    }
+  };
+
+  const handleInitSwarm = async (projectId: string) => {
+    if (!selectedManagerHostId) {
+      showNotification('warning', 'Campo Obrigatório', 'Selecione o servidor que será o nó Manager líder.');
+      return;
+    }
+
+    setIsInitializingSwarm(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/swarm/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ managerHostId: selectedManagerHostId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Falha ao inicializar Swarm.');
+
+      showNotification('success', 'Swarm Inicializado!', 'Cluster Docker Swarm configurado com sucesso.');
+      onRefreshData();
+      if (selectedSwarmProject) {
+        await openSwarmModal(selectedSwarmProject);
+      }
+    } catch (err: any) {
+      showNotification('error', 'Falha no Swarm', err.message);
+    } finally {
+      setIsInitializingSwarm(false);
+    }
+  };
+
+  const handleJoinWorkerHost = async (projectId: string) => {
+    if (!selectedWorkerHostId) {
+      showNotification('warning', 'Campo Obrigatório', 'Selecione o servidor para ingressar no cluster.');
+      return;
+    }
+
+    setIsJoiningHost(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/swarm/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workerHostId: selectedWorkerHostId, role: 'WORKER' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Falha ao unir servidor ao Swarm.');
+
+      showNotification('success', 'Nó Conectado', 'O servidor ingressou no cluster Swarm com sucesso.');
+      onRefreshData();
+      if (selectedSwarmProject) {
+        await openSwarmModal(selectedSwarmProject);
+      }
+    } catch (err: any) {
+      showNotification('error', 'Falha no Join', err.message);
+    } finally {
+      setIsJoiningHost(false);
+    }
+  };
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    showNotification('success', 'Copiado!', `${label} copiado.`);
+  };
 
   const openCreateModal = () => {
     setEditingProject(null);
@@ -187,15 +284,19 @@ export const ProjectsManagementView: React.FC<ProjectsManagementViewProps> = ({
                       Padrão
                     </span>
                   )}
-                  <span
-                    className={`px-2 py-0.5 rounded text-[9px] font-bold border ${
+                  <button
+                    type="button"
+                    onClick={() => openSwarmModal(p)}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold border transition-colors ${
                       p.type === 'SWARM'
-                        ? 'bg-purple-50 text-purple-700 border-purple-200'
-                        : 'bg-slate-50 text-slate-600 border-slate-200'
+                        ? 'bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200'
+                        : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
                     }`}
+                    title={p.type === 'SWARM' ? 'Ver Cluster Swarm e Nós' : 'Configurar Cluster Swarm'}
                   >
-                    {p.type === 'SWARM' ? 'Cluster Swarm' : 'Standalone'}
-                  </span>
+                    <Crown className="w-3 h-3 text-purple-600" />
+                    <span>{p.type === 'SWARM' ? 'Cluster Swarm' : 'Standalone'}</span>
+                  </button>
                 </div>
               </div>
 
@@ -426,6 +527,237 @@ export const ProjectsManagementView: React.FC<ProjectsManagementViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Orquestração Docker Swarm do Projeto */}
+      {selectedSwarmProject && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-purple-50/50">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
+                  <Crown className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-800">
+                    Cluster Docker Swarm • {selectedSwarmProject.name}
+                  </h3>
+                  <p className="text-[10px] text-slate-500">
+                    Gerenciamento nativo de nós, alta disponibilidade e rede overlay.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedSwarmProject(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4 overflow-y-auto">
+              {loadingSwarmData ? (
+                <div className="py-12 text-center text-slate-400">
+                  <Activity className="w-6 h-6 animate-spin mx-auto mb-2 text-purple-600" />
+                  <span className="text-xs">Consultando cluster Swarm...</span>
+                </div>
+              ) : !swarmTokens?.workerToken && swarmNodes.length === 0 ? (
+                // Cluster ainda não inicializado
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                  <div>
+                    <h4 className="font-bold text-xs text-slate-800">Inicializar Cluster Docker Swarm</h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Este projeto ainda não possui um cluster Swarm inicializado. Selecione o servidor principal para assumir o papel de Manager líder.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Servidor Manager Líder *
+                    </label>
+                    <select
+                      value={selectedManagerHostId}
+                      onChange={(e) => setSelectedManagerHostId(e.target.value)}
+                      className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+                    >
+                      {hosts
+                        .filter((h) => h.projectId === selectedSwarmProject.id)
+                        .map((h) => (
+                          <option key={h.id} value={h.id}>
+                            {h.name} ({h.type} - {h.endpointUrl})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleInitSwarm(selectedSwarmProject.id)}
+                    disabled={isInitializingSwarm || !selectedManagerHostId}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
+                  >
+                    <Crown className="w-3.5 h-3.5" />
+                    <span>{isInitializingSwarm ? 'Inicializando...' : 'Inicializar Cluster Swarm'}</span>
+                  </button>
+                </div>
+              ) : (
+                // Cluster Ativo: Comandos de Join e Lista de Nós
+                <>
+                  {/* Comando de Join Worker */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                        <span>Comando de Adesão para Nós Workers</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const cmd = `docker swarm join --token ${swarmTokens?.workerToken} ${
+                            swarmTokens?.managerHost?.endpointUrl.replace('ssh://root@', '').replace('ssh://', '') || '127.0.0.1'
+                          }:2377`;
+                          copyToClipboard(cmd, 'Comando Swarm Join');
+                        }}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-600 hover:text-purple-700"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>Copiar Comando</span>
+                      </button>
+                    </div>
+
+                    <pre className="p-3 bg-slate-900 text-emerald-400 rounded-xl font-mono text-[11px] overflow-x-auto whitespace-pre-wrap border border-slate-800">
+                      {`docker swarm join --token ${swarmTokens?.workerToken || '...'} ${
+                        swarmTokens?.managerHost?.endpointUrl.replace('ssh://root@', '').replace('ssh://', '') || '127.0.0.1'
+                      }:2377`}
+                    </pre>
+                  </div>
+
+                  {/* Tabela de Nós do Cluster */}
+                  <div>
+                    <h4 className="text-[11px] font-bold text-slate-700 mb-2 flex items-center justify-between">
+                      <span>Nós Conectados ({swarmNodes.length})</span>
+                      <button
+                        type="button"
+                        onClick={() => openSwarmModal(selectedSwarmProject)}
+                        className="text-[10px] font-medium text-purple-600 hover:underline"
+                      >
+                        Atualizar Nós
+                      </button>
+                    </h4>
+
+                    <div className="border border-slate-200 rounded-xl overflow-hidden">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200">
+                          <tr>
+                            <th className="py-2 px-3">Hostname / ID</th>
+                            <th className="py-2 px-3">Papel (Role)</th>
+                            <th className="py-2 px-3">Status</th>
+                            <th className="py-2 px-3">Engine</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {swarmNodes.map((n) => (
+                            <tr key={n.id} className="hover:bg-slate-50/50">
+                              <td className="py-2 px-3 font-medium text-slate-800 flex items-center gap-1.5">
+                                {n.leader && <Crown className="w-3 h-3 text-purple-600 shrink-0" />}
+                                <span className="truncate">{n.hostname}</span>
+                              </td>
+                              <td className="py-2 px-3">
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                                    n.role === 'manager'
+                                      ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                                      : 'bg-blue-50 text-blue-700 border border-blue-200'
+                                  }`}
+                                >
+                                  {n.role}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3">
+                                <span
+                                  className={`inline-flex items-center gap-1 text-[10px] font-bold ${
+                                    n.status === 'ready' ? 'text-emerald-600' : 'text-rose-600'
+                                  }`}
+                                >
+                                  <span
+                                    className={`w-1.5 h-1.5 rounded-full ${
+                                      n.status === 'ready' ? 'bg-emerald-500' : 'bg-rose-500'
+                                    }`}
+                                  />
+                                  {n.status}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-[10px] text-slate-500 font-mono">
+                                {n.engineVersion ? `v${n.engineVersion}` : '-'}
+                              </td>
+                            </tr>
+                          ))}
+
+                          {swarmNodes.length === 0 && (
+                            <tr>
+                              <td colSpan={4} className="py-4 text-center text-slate-400 italic text-[11px]">
+                                Nenhum nó remoto conectado ao Swarm ainda.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Adicionar Servidor Existente do Projeto como Worker */}
+                  {hosts.filter((h) => h.projectId === selectedSwarmProject.id && !h.isSwarmManager).length > 0 && (
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                      <h4 className="text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                        <UserPlus className="w-3.5 h-3.5 text-purple-600" />
+                        <span>Unir Servidor Existente ao Cluster</span>
+                      </h4>
+                      <p className="text-[10px] text-slate-400 mb-2">
+                        Execute a integração automática sem precisar rodar comandos manuais no terminal.
+                      </p>
+
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={selectedWorkerHostId}
+                          onChange={(e) => setSelectedWorkerHostId(e.target.value)}
+                          className="flex-1 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white"
+                        >
+                          {hosts
+                            .filter((h) => h.projectId === selectedSwarmProject.id && !h.isSwarmManager)
+                            .map((h) => (
+                              <option key={h.id} value={h.id}>
+                                {h.name} ({h.type})
+                              </option>
+                            ))}
+                        </select>
+
+                        <button
+                          type="button"
+                          onClick={() => handleJoinWorkerHost(selectedSwarmProject.id)}
+                          disabled={isJoiningHost || !selectedWorkerHostId}
+                          className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
+                        >
+                          {isJoiningHost ? 'Conectando...' : 'Unir ao Swarm'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedSwarmProject(null)}
+                className="px-4 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors shadow-2xs"
+              >
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}

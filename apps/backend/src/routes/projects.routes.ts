@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma, logAudit } from '../db.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.middleware.js';
+import { swarmService } from '../services/swarm.service.js';
 
 const router = Router();
 
@@ -210,6 +211,106 @@ router.delete('/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
     return res.json({ success: true, message: `Projeto "${project.name}" removido com sucesso.` });
   } catch (err: any) {
     return res.status(500).json({ error: `Erro ao remover projeto: ${err.message}` });
+  }
+});
+
+// 6. Inicializar Docker Swarm no Projeto
+router.post('/:id/swarm/init', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const { managerHostId, advertiseAddr } = req.body;
+  if (!managerHostId) {
+    return res.status(400).json({ error: 'managerHostId é obrigatório para inicializar o cluster Swarm.' });
+  }
+
+  try {
+    const tokens = await swarmService.initSwarm(req.params.id, managerHostId, advertiseAddr);
+
+    await logAudit({
+      userId: req.user?.id,
+      userName: req.user?.name || 'Administrador',
+      action: 'SWARM_INICIALIZADO',
+      entityType: 'PROJECT',
+      entityId: req.params.id,
+      details: `Cluster Docker Swarm inicializado no projeto. Manager: ${managerHostId}`,
+      ipAddress: req.ip,
+    });
+
+    return res.json({
+      success: true,
+      message: 'Docker Swarm inicializado com sucesso!',
+      tokens,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: `Falha ao inicializar Swarm: ${err.message}` });
+  }
+});
+
+// 7. Obter Tokens do Swarm
+router.get('/:id/swarm/tokens', requireAuth, async (req, res) => {
+  try {
+    const tokens = await swarmService.getJoinTokens(req.params.id);
+    return res.json(tokens);
+  } catch (err: any) {
+    return res.status(500).json({ error: `Erro ao obter tokens do Swarm: ${err.message}` });
+  }
+});
+
+// 8. Listar Nós do Cluster Swarm
+router.get('/:id/swarm/nodes', requireAuth, async (req, res) => {
+  try {
+    const nodes = await swarmService.listNodes(req.params.id);
+    return res.json(nodes);
+  } catch (err: any) {
+    return res.status(500).json({ error: `Erro ao listar nós do Swarm: ${err.message}` });
+  }
+});
+
+// 9. Adicionar Host Existente ao Swarm (Join)
+router.post('/:id/swarm/join', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const { workerHostId, role } = req.body;
+  if (!workerHostId) {
+    return res.status(400).json({ error: 'workerHostId é obrigatório.' });
+  }
+
+  try {
+    await swarmService.joinSwarm(req.params.id, workerHostId, role || 'WORKER');
+
+    await logAudit({
+      userId: req.user?.id,
+      userName: req.user?.name || 'Administrador',
+      action: 'SWARM_NODE_JOINED',
+      entityType: 'PROJECT',
+      entityId: req.params.id,
+      details: `Host ${workerHostId} ingressou no cluster Swarm como ${role || 'WORKER'}.`,
+      ipAddress: req.ip,
+    });
+
+    return res.json({ success: true, message: 'Host ingressou no Swarm com sucesso!' });
+  } catch (err: any) {
+    return res.status(500).json({ error: `Erro ao ingressar no Swarm: ${err.message}` });
+  }
+});
+
+// 10. Remover Host do Swarm (Leave)
+router.post('/swarm/leave', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const { hostId, force } = req.body;
+  if (!hostId) return res.status(400).json({ error: 'hostId é obrigatório.' });
+
+  try {
+    await swarmService.leaveSwarm(hostId, force !== false);
+
+    await logAudit({
+      userId: req.user?.id,
+      userName: req.user?.name || 'Administrador',
+      action: 'SWARM_NODE_LEFT',
+      entityType: 'HOST',
+      entityId: hostId,
+      details: `Host ${hostId} saiu do cluster Swarm.`,
+      ipAddress: req.ip,
+    });
+
+    return res.json({ success: true, message: 'Host desconectado do Swarm.' });
+  } catch (err: any) {
+    return res.status(500).json({ error: `Erro ao sair do Swarm: ${err.message}` });
   }
 });
 

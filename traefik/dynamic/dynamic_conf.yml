@@ -1,6 +1,6 @@
 # ===================================================================
 # TRAEFIK DYNAMIC CONFIGURATION - GERADO AUTOMATICAMENTE PELO BACKEND
-# Gerado em: 2026-10-24T15:21:05.656Z
+# Gerado em: 2026-10-24T16:54:35.099Z
 # ===================================================================
 http:
   routers:
@@ -14,22 +14,22 @@ http:
       middlewares:
         - cloudflare-realip
       tls: {}
-    router-bla-com-br:
-      rule: Host(`bla.com.br`)
-      entryPoints:
-        - websecure
-        - web
-      service: service-bla-com-br
-      priority: 100
-      middlewares:
-        - cloudflare-realip
-      tls: {}
     router-admin-bla-com-br:
       rule: Host(`admin.bla.com.br`)
       entryPoints:
         - websecure
         - web
       service: service-admin-bla-com-br
+      priority: 100
+      middlewares:
+        - cloudflare-realip
+      tls: {}
+    router-bla-com-br:
+      rule: Host(`bla.com.br`)
+      entryPoints:
+        - websecure
+        - web
+      service: service-bla-com-br
       priority: 100
       middlewares:
         - cloudflare-realip
@@ -100,15 +100,15 @@ http:
         servers:
           - url: http://api:8080
         passHostHeader: true
-    service-bla-com-br:
-      loadBalancer:
-        servers:
-          - url: http://web-portal:80
-        passHostHeader: true
     service-admin-bla-com-br:
       loadBalancer:
         servers:
           - url: http://admin:80
+        passHostHeader: true
+    service-bla-com-br:
+      loadBalancer:
+        servers:
+          - url: http://web-portal:80
         passHostHeader: true
     service-whoami-local:
       loadBalancer:

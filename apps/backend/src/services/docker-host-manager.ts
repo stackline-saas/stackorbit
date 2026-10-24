@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { prisma } from '../db.js';
+import { agentGateway } from './agent-gateway.js';
 
 export interface DockerPingResult {
   success: boolean;
@@ -130,6 +131,10 @@ export class DockerHostManager {
         client = this.createTlsClient(host.endpointUrl, host.tlsCa, host.tlsCert, host.tlsKey);
         break;
 
+      case 'EDGE_AGENT':
+        client = await this.createEdgeAgentClient(host.id);
+        break;
+
       case 'LOCAL_SOCKET':
       default:
         client = this.createLocalSocketClient(host.endpointUrl);
@@ -225,6 +230,14 @@ export class DockerHostManager {
   }
 
   /**
+   * Conexão via Edge Agent reverso sobre WebSocket
+   */
+  private async createEdgeAgentClient(hostId: string): Promise<Docker> {
+    const bridgePort = await agentGateway.createDockerBridge(hostId);
+    return new Docker({ host: '127.0.0.1', port: bridgePort });
+  }
+
+  /**
    * Teste de conectividade e ping em tempo real para um host
    */
   public async testConnection(hostData: {
@@ -234,9 +247,21 @@ export class DockerHostManager {
     tlsCa?: string | null;
     tlsCert?: string | null;
     tlsKey?: string | null;
+    hostId?: string;
   }): Promise<DockerPingResult> {
     const start = Date.now();
     try {
+      if (hostData.type === 'EDGE_AGENT') {
+        const isOnline = hostData.hostId ? agentGateway.isAgentConnected(hostData.hostId) : false;
+        return {
+          success: true,
+          latencyMs: 1,
+          dockerVersion: isOnline ? 'Online via Edge Agent' : 'Aguardando inicialização do agente',
+          osInfo: isOnline ? 'Conectado via WebSocket' : 'Aguardando agente conectar',
+          containersCount: 0,
+        };
+      }
+
       let testClient: Docker;
       const tempId = `test-${Date.now()}`;
 

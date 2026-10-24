@@ -104,6 +104,8 @@ export interface DockerHost {
   isDefault: boolean;
   isSwarmManager: boolean;
   swarmNodeId?: string | null;
+  agentToken?: string | null;
+  isAgentConnected?: boolean;
   cpuUsage?: number | null;
   memUsage?: number | null;
   dockerVersion?: string | null;

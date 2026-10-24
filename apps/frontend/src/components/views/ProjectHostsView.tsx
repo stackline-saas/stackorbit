@@ -19,6 +19,8 @@ import {
   Play,
   Copy,
   ExternalLink,
+  Zap,
+  Crown,
 } from 'lucide-react';
 import type { Project, DockerHost } from '../../types';
 
@@ -64,6 +66,60 @@ export const ProjectHostsView: React.FC<ProjectHostsViewProps> = ({
 
   const [pingLoading, setPingLoading] = useState<Record<string, boolean>>({});
   const [isSaving, setIsSaving] = useState(false);
+
+  // Edge Agent Setup Modal State
+  const [agentSetupModalHost, setAgentSetupModalHost] = useState<DockerHost | null>(null);
+  const [agentSetupData, setAgentSetupData] = useState<{
+    hostId: string;
+    hostName: string;
+    agentToken: string;
+    managerWsUrl: string;
+    isConnected: boolean;
+    dockerRunCommand: string;
+    nodeCommand: string;
+  } | null>(null);
+  const [loadingAgentSetup, setLoadingAgentSetup] = useState(false);
+  const [isRegeneratingToken, setIsRegeneratingToken] = useState(false);
+
+  const openAgentSetup = async (h: DockerHost) => {
+    setAgentSetupModalHost(h);
+    setLoadingAgentSetup(true);
+    setAgentSetupData(null);
+    try {
+      const res = await fetch(`/api/hosts/${h.id}/agent-setup`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Falha ao carregar instruções do agente.');
+      setAgentSetupData(data);
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+    } finally {
+      setLoadingAgentSetup(false);
+    }
+  };
+
+  const handleRegenerateToken = async (hostId: string) => {
+    if (!confirm('Atenção: regenerar o token desconectará o agente atual até que o novo token seja aplicado. Deseja continuar?')) return;
+    setIsRegeneratingToken(true);
+    try {
+      const res = await fetch(`/api/hosts/${hostId}/regenerate-token`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Falha ao regenerar token.');
+      showNotification('success', 'Token Regenerado', data.message);
+      if (agentSetupModalHost) {
+        await openAgentSetup(agentSetupModalHost);
+      }
+      onRefreshData();
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+    } finally {
+      setIsRegeneratingToken(false);
+    }
+  };
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    showNotification('success', 'Copiado!', `${label} copiado para a área de transferência.`);
+  };
 
   // Filtra por projeto se selecionado
   const filteredHosts = selectedProjectId
@@ -323,6 +379,18 @@ export const ProjectHostsView: React.FC<ProjectHostsViewProps> = ({
                     Host Padrão
                   </span>
                 )}
+                {h.isSwarmManager && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                    <Crown className="w-2.5 h-2.5 text-purple-600" />
+                    <span>Swarm Manager</span>
+                  </span>
+                )}
+                {h.type === 'EDGE_AGENT' && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                    <Zap className="w-2.5 h-2.5 text-amber-600" />
+                    <span>Edge Agent</span>
+                  </span>
+                )}
                 {h.projectName && (
                   <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-100 text-slate-700">
                     <FolderGit2 className="w-2.5 h-2.5 text-slate-400" />
@@ -368,6 +436,18 @@ export const ProjectHostsView: React.FC<ProjectHostsViewProps> = ({
                 </span>
 
                 <div className="flex items-center gap-1.5">
+                  {h.type === 'EDGE_AGENT' && (
+                    <button
+                      type="button"
+                      onClick={() => openAgentSetup(h)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-md transition-colors"
+                      title="Instruções e comando do Edge Agent"
+                    >
+                      <Zap className="w-3 h-3 text-amber-600" />
+                      <span>Setup Agente</span>
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => handlePingHost(h.id)}
@@ -481,6 +561,22 @@ export const ProjectHostsView: React.FC<ProjectHostsViewProps> = ({
                 <Shield className="w-3.5 h-3.5" />
                 <span>TCP / TLS</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveHostTypeTab('EDGE_AGENT');
+                  setEndpointUrl('edge://agent');
+                }}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg transition-all flex items-center gap-1.5 ${
+                  activeHostTypeTab === 'EDGE_AGENT'
+                    ? 'bg-white text-blue-600 border-t border-x border-slate-200 shadow-2xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-500" />
+                <span>Edge Agent (Firewall/CGNAT)</span>
+              </button>
             </div>
 
             <form onSubmit={handleSaveHost} className="p-4 space-y-3.5 overflow-y-auto">
@@ -518,80 +614,97 @@ export const ProjectHostsView: React.FC<ProjectHostsViewProps> = ({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  {activeHostTypeTab === 'SSH'
-                    ? 'Endereço SSH do Servidor *'
-                    : activeHostTypeTab === 'TCP_TLS'
-                    ? 'URL TCP do Docker (porta 2376) *'
-                    : 'Caminho do Socket Docker *'}
-                </label>
-                <input
-                  type="text"
-                  value={endpointUrl}
-                  onChange={(e) => setEndpointUrl(e.target.value)}
-                  placeholder={
-                    activeHostTypeTab === 'SSH'
-                      ? 'ssh://root@192.168.0.7:22'
-                      : activeHostTypeTab === 'TCP_TLS'
-                      ? 'tcp://192.168.0.7:2376'
-                      : '/var/run/docker.sock'
-                  }
-                  className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 font-mono focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                  required
-                />
-              </div>
-
-              {activeHostTypeTab === 'SSH' && (
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Chave Privada SSH (Opcional se já estiver configurada no agente/host)
-                  </label>
-                  <textarea
-                    value={sshKey}
-                    onChange={(e) => setSshKey(e.target.value)}
-                    placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
-                    rows={4}
-                    className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 font-mono focus:outline-hidden focus:ring-2 focus:ring-blue-500 text-[11px]"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-0.5">
-                    Se omitida, a autenticação usará as chaves SSH padrões do sistema.
+              {activeHostTypeTab === 'EDGE_AGENT' ? (
+                <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl text-xs space-y-2 text-amber-900">
+                  <div className="font-bold flex items-center gap-1.5 text-amber-800">
+                    <Zap className="w-4 h-4 text-amber-600" />
+                    <span>Conexão Reversa Segura (Firewall & CGNAT Friendly)</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-amber-800">
+                    O servidor remoto conecta-se a esta API via WebSocket reverso através de um container Docker leve. Nenhuma porta precisa ser aberta ou redirecionada no roteador.
+                  </p>
+                  <p className="text-[11px] text-amber-700 font-medium">
+                    ⚡ Ao clicar em <strong>Salvar Servidor</strong>, um token exclusivo será gerado e você receberá o comando pronto de 1 clique para colar no servidor remoto.
                   </p>
                 </div>
-              )}
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      {activeHostTypeTab === 'SSH'
+                        ? 'Endereço SSH do Servidor *'
+                        : activeHostTypeTab === 'TCP_TLS'
+                        ? 'URL TCP do Docker (porta 2376) *'
+                        : 'Caminho do Socket Docker *'}
+                    </label>
+                    <input
+                      type="text"
+                      value={endpointUrl}
+                      onChange={(e) => setEndpointUrl(e.target.value)}
+                      placeholder={
+                        activeHostTypeTab === 'SSH'
+                          ? 'ssh://root@192.168.0.7:22'
+                          : activeHostTypeTab === 'TCP_TLS'
+                          ? 'tcp://192.168.0.7:2376'
+                          : '/var/run/docker.sock'
+                      }
+                      className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 font-mono focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
 
-              {/* Botão de Teste de Conexão em Tempo Real */}
-              <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={handleTestConnection}
-                  disabled={isTesting}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors disabled:opacity-50"
-                >
-                  <Activity className={`w-3.5 h-3.5 text-blue-600 ${isTesting ? 'animate-spin' : ''}`} />
-                  <span>{isTesting ? 'Testando Conexão...' : 'Testar Conexão em Tempo Real'}</span>
-                </button>
+                  {activeHostTypeTab === 'SSH' && (
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Chave Privada SSH (Opcional se já estiver configurada no agente/host)
+                      </label>
+                      <textarea
+                        value={sshKey}
+                        onChange={(e) => setSshKey(e.target.value)}
+                        placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
+                        rows={4}
+                        className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 font-mono focus:outline-hidden focus:ring-2 focus:ring-blue-500 text-[11px]"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Se omitida, a autenticação usará as chaves SSH padrões do sistema.
+                      </p>
+                    </div>
+                  )}
 
-                {testResult && (
-                  <div
-                    className={`inline-flex items-center gap-1 text-[11px] font-bold ${
-                      testResult.success ? 'text-emerald-600' : 'text-rose-600'
-                    }`}
-                  >
-                    {testResult.success ? (
-                      <>
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Online ({testResult.latencyMs}ms) • Docker v{testResult.dockerVersion}</span>
-                      </>
-                    ) : (
-                      <>
-                        <XCircle className="w-3.5 h-3.5" />
-                        <span>Erro: {testResult.error || 'Falha'}</span>
-                      </>
+                  {/* Botão de Teste de Conexão em Tempo Real */}
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={handleTestConnection}
+                      disabled={isTesting}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors disabled:opacity-50"
+                    >
+                      <Activity className={`w-3.5 h-3.5 text-blue-600 ${isTesting ? 'animate-spin' : ''}`} />
+                      <span>{isTesting ? 'Testando Conexão...' : 'Testar Conexão em Tempo Real'}</span>
+                    </button>
+
+                    {testResult && (
+                      <div
+                        className={`inline-flex items-center gap-1 text-[11px] font-bold ${
+                          testResult.success ? 'text-emerald-600' : 'text-rose-600'
+                        }`}
+                      >
+                        {testResult.success ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Online ({testResult.latencyMs}ms) • Docker v{testResult.dockerVersion}</span>
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="w-3.5 h-3.5" />
+                            <span>Erro: {testResult.error || 'Falha'}</span>
+                          </>
+                        )}
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
+                </>
+              )}
 
               {/* Rodapé com Salvar */}
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
@@ -611,6 +724,143 @@ export const ProjectHostsView: React.FC<ProjectHostsViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Instruções de Instalação do Edge Agent */}
+      {agentSetupModalHost && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
+                  <Zap className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-800">
+                    Instalação do Edge Agent • {agentSetupModalHost.name}
+                  </h3>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span
+                      className={`inline-flex items-center gap-1 text-[10px] font-bold ${
+                        agentSetupData?.isConnected ? 'text-emerald-600' : 'text-amber-600'
+                      }`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          agentSetupData?.isConnected ? 'bg-emerald-500' : 'bg-amber-500'
+                        }`}
+                      />
+                      {agentSetupData?.isConnected ? 'Agente Conectado & Operacional' : 'Aguardando Inicialização do Agente'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setAgentSetupModalHost(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4 overflow-y-auto">
+              {loadingAgentSetup ? (
+                <div className="py-12 text-center text-slate-400">
+                  <Activity className="w-6 h-6 animate-spin mx-auto mb-2 text-blue-600" />
+                  <span className="text-xs">Carregando comandos...</span>
+                </div>
+              ) : agentSetupData ? (
+                <>
+                  {/* Token Box */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-bold text-slate-700">Token Exclusivo do Host</label>
+                      <button
+                        type="button"
+                        onClick={() => handleRegenerateToken(agentSetupData.hostId)}
+                        disabled={isRegeneratingToken}
+                        className="text-[10px] font-semibold text-rose-600 hover:text-rose-700 hover:underline disabled:opacity-50"
+                      >
+                        {isRegeneratingToken ? 'Regenerando...' : 'Regenerar Token'}
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={agentSetupData.agentToken}
+                        className="w-full text-xs px-3 py-1.5 rounded-lg border border-slate-200 font-mono bg-slate-50 text-slate-700 select-all"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(agentSetupData.agentToken, 'Token do Agente')}
+                        className="p-2 border border-slate-200 rounded-lg hover:bg-slate-100 text-slate-600 shrink-0"
+                        title="Copiar Token"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 1-Click Docker Run Command */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-bold text-slate-700">
+                        Opção 1: Rodar via Docker Container (Recomendado)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(agentSetupData.dockerRunCommand, 'Comando Docker')}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>Copiar Comando</span>
+                      </button>
+                    </div>
+                    <pre className="p-3 bg-slate-900 text-emerald-400 rounded-xl font-mono text-[11px] overflow-x-auto whitespace-pre-wrap border border-slate-800">
+                      {agentSetupData.dockerRunCommand}
+                    </pre>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Cole e execute este comando no terminal do seu servidor remoto com acesso ao Docker.
+                    </p>
+                  </div>
+
+                  {/* 1-Click Node / NPX Command */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-bold text-slate-700">
+                        Opção 2: Rodar diretamente com Node / NPX
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(agentSetupData.nodeCommand, 'Comando NPX')}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>Copiar Comando</span>
+                      </button>
+                    </div>
+                    <pre className="p-3 bg-slate-900 text-emerald-400 rounded-xl font-mono text-[11px] overflow-x-auto whitespace-pre-wrap border border-slate-800">
+                      {agentSetupData.nodeCommand}
+                    </pre>
+                  </div>
+                </>
+              ) : null}
+            </div>
+
+            <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setAgentSetupModalHost(null)}
+                className="px-4 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors shadow-2xs"
+              >
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}

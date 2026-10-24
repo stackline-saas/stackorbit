@@ -1,10 +1,12 @@
 import express from 'express';
+import http from 'node:http';
 import cors from 'cors';
 import path from 'node:path';
 import fs from 'node:fs';
 import { config } from './config.js';
 import { prisma, logAudit } from './db.js';
 import { traefikService } from './services/traefik.service.js';
+import { agentGateway } from './services/agent-gateway.js';
 
 // Import Routes
 import authRoutes from './routes/auth.routes.js';
@@ -174,7 +176,10 @@ async function start() {
     console.warn('Aviso na inicialização do Traefik:', e.message);
   }
 
-  app.listen(config.port, '0.0.0.0', () => {
+  const server = http.createServer(app);
+  agentGateway.setupWebSocket(server);
+
+  server.listen(config.port, '0.0.0.0', () => {
     console.log(`\n==================================================`);
     console.log(`🚀 Docker Domain Manager Backend API`);
     console.log(`📡 Porta: ${config.port}`);

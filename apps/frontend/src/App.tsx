@@ -698,7 +698,7 @@ function MainApp() {
                         }
                         showNotification('success', 'Serviço Criado', `O serviço "${serviceData.name}" foi cadastrado com sucesso.`);
                         loadData();
-                        return true;
+                        return data;
                       } catch (err: any) {
                         showNotification('error', 'Erro', err.message);
                         return false;

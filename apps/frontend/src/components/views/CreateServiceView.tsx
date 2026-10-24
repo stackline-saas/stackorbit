@@ -42,7 +42,7 @@ import { useAuth } from '../../context/AuthContext.tsx';
 import { useNotification } from '../../context/NotificationContext.tsx';
 
 interface CreateServiceViewProps {
-  onSave: (serviceData: Partial<Service>) => Promise<boolean>;
+  onSave: (serviceData: Partial<Service>) => Promise<any>;
 }
 
 const PRESETS = [
@@ -496,11 +496,16 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
       Object.assign(payload, { image: image.trim() });
     }
 
-    const success = await onSave(payload);
+    const result = await onSave(payload);
     setIsSubmitting(false);
 
-    if (success) {
-      navigate('/services');
+    if (result) {
+      const newId = result.id || (typeof result === 'object' && result?.id);
+      if (sourceType === 'GITHUB' && newId) {
+        navigate(`/services/${newId}?tab=build`);
+      } else {
+        navigate('/services');
+      }
     }
   };
 

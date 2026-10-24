@@ -36,8 +36,9 @@ import {
   List,
   Download,
   Upload,
+  FolderGit2,
 } from 'lucide-react';
-import type { Service, GitProviderAccount, GitHubRepoItem, GitHubBranchItem, ProjectInspectionResult } from '../../types/index.ts';
+import type { Service, GitProviderAccount, GitHubRepoItem, GitHubBranchItem, ProjectInspectionResult, Project, DockerHost } from '../../types/index.ts';
 import { useAuth } from '../../context/AuthContext.tsx';
 import { useNotification } from '../../context/NotificationContext.tsx';
 
@@ -114,6 +115,36 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
   const [internalPort, setInternalPort] = useState<number | ''>(80);
   const [notes, setNotes] = useState('');
   const [isDefault, setIsDefault] = useState(false);
+
+  // Multi-Host & Project Destination
+  const [projectsList, setProjectsList] = useState<Project[]>([]);
+  const [hostsList, setHostsList] = useState<DockerHost[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [selectedHostId, setSelectedHostId] = useState<string>('');
+
+  useEffect(() => {
+    async function loadProjectsAndHosts() {
+      try {
+        const [projRes, hostsRes] = await Promise.all([
+          authFetch('/api/projects'),
+          authFetch('/api/hosts'),
+        ]);
+        if (projRes.ok) {
+          const projs = await projRes.json();
+          setProjectsList(projs);
+          const activeProj = localStorage.getItem('ddm_selected_project') || projs[0]?.id || '';
+          setSelectedProjectId(activeProj);
+        }
+        if (hostsRes.ok) {
+          const hList = await hostsRes.json();
+          setHostsList(hList);
+          const defHost = hList.find((h: any) => h.isDefault) || hList[0];
+          if (defHost) setSelectedHostId(defHost.id);
+        }
+      } catch {}
+    }
+    loadProjectsAndHosts();
+  }, [authFetch]);
 
   // Source type
   const [sourceType, setSourceType] = useState<'IMAGE' | 'GITHUB'>('GITHUB');
@@ -477,6 +508,8 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
       internalPort: Number(internalPort),
       notes: notes.trim(),
       isDefault,
+      projectId: selectedProjectId || undefined,
+      dockerHostId: selectedHostId || undefined,
     } as any;
 
     const finalEnv = envMode === 'keyvalue' ? serializeRowsToEnv(envRows) : envVars;
@@ -1551,6 +1584,56 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
             </h2>
           </div>
           <div className="p-5 space-y-4">
+            {/* Projeto e Servidor Alvo */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-3.5 bg-slate-50/80 rounded-xl border border-slate-200">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
+                  <FolderGit2 className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Projeto de Destino</span>
+                </label>
+                <select
+                  value={selectedProjectId}
+                  onChange={(e) => {
+                    setSelectedProjectId(e.target.value);
+                    const hostsInProj = hostsList.filter((h) => h.projectId === e.target.value);
+                    if (hostsInProj.length > 0) {
+                      setSelectedHostId(hostsInProj[0].id);
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  {projectsList.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.type})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">Ambiente ao qual este serviço pertencerá.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
+                  <Server className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Servidor / Nó Docker</span>
+                </label>
+                <select
+                  value={selectedHostId}
+                  onChange={(e) => setSelectedHostId(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  {(selectedProjectId
+                    ? hostsList.filter((h) => h.projectId === selectedProjectId)
+                    : hostsList
+                  ).map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.name} ({h.status}) - {h.type}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">Servidor físico ou VPS onde o container será instanciado.</p>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">

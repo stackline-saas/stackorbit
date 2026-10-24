@@ -14,6 +14,8 @@ import {
   Settings,
   LogOut,
   ExternalLink,
+  FolderGit2,
+  HardDrive,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.tsx';
 import type { ActiveTab } from '../types/index.ts';
@@ -40,6 +42,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const navigationItems = [
     { id: 'dashboard' as ActiveTab, path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'projects' as ActiveTab, path: '/projects', label: 'Projetos', icon: FolderGit2 },
+    { id: 'hosts' as ActiveTab, path: '/hosts', label: 'Servidores', icon: HardDrive },
     { id: 'services' as ActiveTab, path: '/services', label: 'Serviços', icon: Server, count: servicesCount },
     { id: 'domains' as ActiveTab, path: '/domains', label: 'Domínios', icon: Globe, count: domainsCount },
     { id: 'default-service' as ActiveTab, path: '/default-service', label: 'Serviço Padrão', icon: Compass },

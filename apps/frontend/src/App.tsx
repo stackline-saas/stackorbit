@@ -25,6 +25,9 @@ import { AuditLogsView } from './components/views/AuditLogsView.tsx';
 import { TestSuiteView } from './components/views/TestSuiteView.tsx';
 import { SettingsView } from './components/views/SettingsView.tsx';
 import { IntegrationsView } from './components/views/IntegrationsView.tsx';
+import { ProjectsManagementView } from './components/views/ProjectsManagementView.tsx';
+import { ProjectHostsView } from './components/views/ProjectHostsView.tsx';
+import { ProjectSelector } from './components/navigation/ProjectSelector.tsx';
 import { ServiceDetailView } from './components/views/ServiceDetailView.tsx';
 import { CreateServiceView } from './components/views/CreateServiceView.tsx';
 import {
@@ -36,7 +39,7 @@ import {
 } from './components/Modals.tsx';
 import { TemplateDeployModal } from './components/TemplateDeployModal.tsx';
 import { ImportComposeModal } from './components/ImportComposeModal.tsx';
-import type { DashboardStats, Service, Domain } from './types/index.ts';
+import type { DashboardStats, Service, Domain, Project, DockerHost } from './types/index.ts';
 
 // Route wrapper for /services/:id with dynamic deep-linking
 interface ServiceDetailRouteWrapperProps {
@@ -156,10 +159,28 @@ function MainApp() {
   const [confirmDescription, setConfirmDescription] = useState('');
   const [confirmCallback, setConfirmCallback] = useState<() => Promise<void>>(() => async () => {});
 
+  // Multi-Host & Projects State
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [hosts, setHosts] = useState<DockerHost[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => {
+    return localStorage.getItem('ddm_selected_project') || null;
+  });
+
+  const handleSelectProject = (id: string | null) => {
+    setSelectedProjectId(id);
+    if (id) {
+      localStorage.setItem('ddm_selected_project', id);
+    } else {
+      localStorage.removeItem('ddm_selected_project');
+    }
+  };
+
   // Compute active tab from current URL pathname
   const getCurrentTab = (): ActiveTab => {
     const p = location.pathname;
     if (p === '/' || p.startsWith('/dashboard')) return 'dashboard';
+    if (p.startsWith('/projects')) return 'projects';
+    if (p.startsWith('/hosts')) return 'hosts';
     if (p.startsWith('/services/')) return 'service-detail';
     if (p.startsWith('/services')) return 'services';
     if (p.startsWith('/domains')) return 'domains';
@@ -180,6 +201,12 @@ function MainApp() {
     switch (tab) {
       case 'dashboard':
         navigate('/dashboard');
+        break;
+      case 'projects':
+        navigate('/projects');
+        break;
+      case 'hosts':
+        navigate('/hosts');
         break;
       case 'services':
         navigate('/services');
@@ -223,10 +250,12 @@ function MainApp() {
     if (!user) return;
     setIsRefreshing(true);
     try {
-      const [statsRes, servicesRes, domainsRes] = await Promise.all([
+      const [statsRes, servicesRes, domainsRes, projectsRes, hostsRes] = await Promise.all([
         authFetch('/api/dashboard'),
         authFetch('/api/services'),
         authFetch('/api/domains'),
+        authFetch('/api/projects'),
+        authFetch('/api/hosts'),
       ]);
 
       if (statsRes.ok) {
@@ -237,6 +266,12 @@ function MainApp() {
       }
       if (domainsRes.ok) {
         setDomains(await domainsRes.json());
+      }
+      if (projectsRes.ok) {
+        setProjects(await projectsRes.json());
+      }
+      if (hostsRes.ok) {
+        setHosts(await hostsRes.json());
       }
     } catch (err) {
       console.error('Falha ao atualizar dados:', err);
@@ -597,6 +632,10 @@ function MainApp() {
     );
   }
 
+  const displayedServices = selectedProjectId
+    ? services.filter((s) => s.projectId === selectedProjectId)
+    : services;
+
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
       {/* Sidebar Navigation */}
@@ -617,6 +656,14 @@ function MainApp() {
           isRefreshing={isRefreshing}
           onApplyTraefik={handleApplyTraefik}
           isApplyingTraefik={isApplyingTraefik}
+          projectSelectorSlot={
+            <ProjectSelector
+              projects={projects}
+              selectedProjectId={selectedProjectId}
+              onSelectProject={handleSelectProject}
+              onCreateProjectClick={() => navigate('/projects')}
+            />
+          }
         />
 
         {/* View Content Area with Declarative Routing */}
@@ -627,13 +674,44 @@ function MainApp() {
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/login" element={<Navigate to="/dashboard" replace />} />
 
+              {/* Multi-Project & Hosts Management */}
+              <Route
+                path="/projects"
+                element={
+                  <ProjectsManagementView
+                    projects={projects}
+                    hosts={hosts}
+                    selectedProjectId={selectedProjectId}
+                    onSelectProject={handleSelectProject}
+                    onNavigateToHosts={(projId) => {
+                      handleSelectProject(projId);
+                      navigate('/hosts');
+                    }}
+                    onRefreshData={loadData}
+                    showNotification={showNotification}
+                  />
+                }
+              />
+              <Route
+                path="/hosts"
+                element={
+                  <ProjectHostsView
+                    projects={projects}
+                    hosts={hosts}
+                    selectedProjectId={selectedProjectId}
+                    onRefreshData={loadData}
+                    showNotification={showNotification}
+                  />
+                }
+              />
+
               {/* 1. Dashboard */}
               <Route
                 path="/dashboard"
                 element={
                   <DashboardView
                     stats={stats}
-                    services={services}
+                    services={displayedServices}
                     domains={domains}
                     onNavigate={handleNavigateTab}
                     onOpenNewService={() => {
@@ -653,7 +731,7 @@ function MainApp() {
                 path="/services"
                 element={
                   <ServicesView
-                    services={services}
+                    services={displayedServices}
                     onOpenCreate={() => {
                       navigate('/services/new');
                     }}

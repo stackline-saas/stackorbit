@@ -255,6 +255,15 @@ export const ServicesView: React.FC<ServicesViewProps> = ({
                           >
                             {svc.name}
                           </button>
+                          {svc.dockerHost?.name && (
+                            <span
+                              className="text-[10px] text-slate-600 font-medium px-1.5 py-0.2 bg-slate-100 border border-slate-200 rounded flex items-center gap-1"
+                              title={`Servidor: ${svc.dockerHost.name} (${svc.dockerHost.type})`}
+                            >
+                              <Server className="w-2.5 h-2.5 text-slate-400" />
+                              <span>{svc.dockerHost.name}</span>
+                            </span>
+                          )}
                           {svc.containerCount && svc.containerCount > 1 && (
                             <button
                               onClick={() => onOpenEdit(svc)}

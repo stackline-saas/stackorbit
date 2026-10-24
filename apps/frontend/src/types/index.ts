@@ -38,6 +38,10 @@ export interface Service {
   volumes?: string;
   network?: string;
   containerCount?: number;
+  projectId?: string | null;
+  project?: { id: string; name: string; slug: string; type: string } | null;
+  dockerHostId?: string | null;
+  dockerHost?: { id: string; name: string; status: string; type: string } | null;
   meta?: {
     composeProject?: string;
     linkedContainers?: string[];
@@ -59,6 +63,8 @@ export interface BuildLogRecord {
 
 export type ActiveTab =
   | 'dashboard'
+  | 'projects'
+  | 'hosts'
   | 'services'
   | 'service-detail'
   | 'domains'
@@ -70,6 +76,45 @@ export type ActiveTab =
   | 'audit'
   | 'tests'
   | 'settings';
+
+export interface Project {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  type: 'STANDALONE' | 'SWARM';
+  isDefault: boolean;
+  hostsCount?: number;
+  servicesCount?: number;
+  hosts?: DockerHost[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DockerHost {
+  id: string;
+  name: string;
+  projectId: string;
+  projectName?: string;
+  projectType?: 'STANDALONE' | 'SWARM';
+  type: 'LOCAL_SOCKET' | 'SSH' | 'TCP_TLS' | 'EDGE_AGENT';
+  status: 'ONLINE' | 'OFFLINE' | 'CONNECTING' | 'ERROR';
+  endpointUrl: string;
+  sshUser?: string | null;
+  isDefault: boolean;
+  isSwarmManager: boolean;
+  swarmNodeId?: string | null;
+  cpuUsage?: number | null;
+  memUsage?: number | null;
+  dockerVersion?: string | null;
+  osInfo?: string | null;
+  containersCount?: number;
+  servicesCount?: number;
+  lastPingAt?: string | null;
+  errorMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface GitProviderAccount {
   id: string;

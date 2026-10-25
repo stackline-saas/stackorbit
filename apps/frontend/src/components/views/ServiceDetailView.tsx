@@ -1347,18 +1347,24 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
           {/* Container Power controls */}
           {isRunning ? (
             <button
-              onClick={() => onStopContainer(service)}
+              onClick={async () => {
+                await onStopContainer(service);
+                await fetchContainers();
+              }}
               className="px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg flex items-center gap-1.5 transition-colors"
-              title="Parar Container"
+              title="Parar Serviço"
             >
               <Square className="w-3.5 h-3.5" />
               <span>Parar</span>
             </button>
           ) : (
             <button
-              onClick={() => onStartContainer(service)}
+              onClick={async () => {
+                await onStartContainer(service);
+                await fetchContainers();
+              }}
               className="px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg flex items-center gap-1.5 transition-colors"
-              title="Iniciar Container"
+              title="Iniciar Serviço"
             >
               <Play className="w-3.5 h-3.5" />
               <span>Iniciar</span>
@@ -1366,9 +1372,12 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
           )}
 
           <button
-            onClick={() => onRestartContainer(service)}
+            onClick={async () => {
+              await onRestartContainer(service);
+              await fetchContainers();
+            }}
             className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg flex items-center gap-1.5 transition-colors"
-            title="Reiniciar Container"
+            title="Reiniciar Serviço"
           >
             <RotateCw className="w-3.5 h-3.5" />
             <span>Reiniciar</span>

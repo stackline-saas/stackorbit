@@ -827,30 +827,45 @@ router.delete('/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
   }
 });
 
-// 7. Container Controls: Start, Stop, Restart
+// 7. Container Controls: Start, Stop, Restart (Supports Single Container & Multi-Container Stacks)
 router.post('/:id/start', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
     const service = await prisma.service.findUnique({ where: { id: req.params.id } });
     if (!service) return res.status(404).json({ error: 'Serviço não encontrado.' });
 
-    try {
-      await dockerService.startContainer(service.containerName);
-    } catch (err: any) {
-      if ((err.statusCode === 404 || err.message?.includes('no such container')) && service.image) {
-        // If container does not exist yet, deploy it automatically
-        const containerId = await dockerService.deployContainer({
-          containerName: service.containerName,
-          image: service.image,
-          envVars: service.envVars || undefined,
-          restartPolicy: service.restartPolicy || undefined,
-          memoryLimitMb: service.memoryLimitMb || undefined,
-          cpuLimit: service.cpuLimit || undefined,
-          command: service.command || undefined,
-        });
-        await prisma.service.update({ where: { id: service.id }, data: { containerId, status: 'running' } });
-        return res.json({ success: true, status: 'running' });
+    const allContainers = await dockerService.listContainers(service.dockerHostId);
+    const matched = matchContainersForService(service, allContainers);
+
+    if (matched.length > 0) {
+      for (const c of matched) {
+        const targetName = c.name || c.id;
+        if (!targetName) continue;
+        try {
+          await dockerService.startContainer(targetName, service.dockerHostId);
+        } catch (startErr: any) {
+          console.warn(`[Services] Falha ao iniciar container individual "${targetName}": ${startErr.message}`);
+        }
       }
-      throw err;
+    } else {
+      // Se não encontrou containers existentes, tenta iniciar ou implantar pelo containerName
+      try {
+        await dockerService.startContainer(service.containerName, service.dockerHostId);
+      } catch (err: any) {
+        if ((err.statusCode === 404 || err.message?.includes('no such container')) && service.image) {
+          const containerId = await dockerService.deployContainer({
+            containerName: service.containerName,
+            image: service.image,
+            envVars: service.envVars || undefined,
+            restartPolicy: service.restartPolicy || undefined,
+            memoryLimitMb: service.memoryLimitMb || undefined,
+            cpuLimit: service.cpuLimit || undefined,
+            command: service.command || undefined,
+          });
+          await prisma.service.update({ where: { id: service.id }, data: { containerId, status: 'running' } });
+          return res.json({ success: true, status: 'running' });
+        }
+        throw err;
+      }
     }
 
     await prisma.service.update({ where: { id: service.id }, data: { status: 'running' } });
@@ -861,13 +876,13 @@ router.post('/:id/start', requireAuth, async (req: AuthenticatedRequest, res) =>
       action: 'CONTAINER_START',
       entityType: 'CONTAINER',
       entityId: service.id,
-      details: `Container "${service.containerName}" iniciado com sucesso.`,
+      details: `Serviço "${service.name}" iniciado com sucesso.`,
       ipAddress: req.ip,
     });
 
     return res.json({ success: true, status: 'running' });
   } catch (err: any) {
-    return res.status(500).json({ error: `Falha ao iniciar container: ${err.message}` });
+    return res.status(500).json({ error: `Falha ao iniciar serviço: ${err.message}` });
   }
 });
 
@@ -876,7 +891,24 @@ router.post('/:id/stop', requireAuth, async (req: AuthenticatedRequest, res) => 
     const service = await prisma.service.findUnique({ where: { id: req.params.id } });
     if (!service) return res.status(404).json({ error: 'Serviço não encontrado.' });
 
-    await dockerService.stopContainer(service.containerName);
+    // Encontra todos os containers reais associados ao serviço ou compose stack
+    const allContainers = await dockerService.listContainers(service.dockerHostId);
+    const matched = matchContainersForService(service, allContainers);
+
+    const targetContainers = matched.length > 0
+      ? matched
+      : [{ name: service.containerName, id: service.containerId }];
+
+    for (const c of targetContainers) {
+      const targetName = c.name || c.id;
+      if (!targetName) continue;
+      try {
+        await dockerService.stopContainer(targetName, service.dockerHostId);
+      } catch (stopErr: any) {
+        console.warn(`[Services] Aviso ao parar container individual "${targetName}": ${stopErr.message}`);
+      }
+    }
+
     await prisma.service.update({ where: { id: service.id }, data: { status: 'stopped' } });
 
     await logAudit({
@@ -885,13 +917,13 @@ router.post('/:id/stop', requireAuth, async (req: AuthenticatedRequest, res) => 
       action: 'CONTAINER_STOP',
       entityType: 'CONTAINER',
       entityId: service.id,
-      details: `Container "${service.containerName}" interrompido.`,
+      details: `Serviço "${service.name}" (${targetContainers.map(c => c.name || c.id).join(', ')}) interrompido.`,
       ipAddress: req.ip,
     });
 
     return res.json({ success: true, status: 'stopped' });
   } catch (err: any) {
-    return res.status(500).json({ error: `Falha ao parar container: ${err.message}` });
+    return res.status(500).json({ error: `Falha ao parar serviço: ${err.message}` });
   }
 });
 
@@ -900,7 +932,23 @@ router.post('/:id/restart', requireAuth, async (req: AuthenticatedRequest, res) 
     const service = await prisma.service.findUnique({ where: { id: req.params.id } });
     if (!service) return res.status(404).json({ error: 'Serviço não encontrado.' });
 
-    await dockerService.restartContainer(service.containerName);
+    const allContainers = await dockerService.listContainers(service.dockerHostId);
+    const matched = matchContainersForService(service, allContainers);
+
+    const targetContainers = matched.length > 0
+      ? matched
+      : [{ name: service.containerName, id: service.containerId }];
+
+    for (const c of targetContainers) {
+      const targetName = c.name || c.id;
+      if (!targetName) continue;
+      try {
+        await dockerService.restartContainer(targetName, service.dockerHostId);
+      } catch (restartErr: any) {
+        console.warn(`[Services] Falha ao reiniciar container individual "${targetName}": ${restartErr.message}`);
+      }
+    }
+
     await prisma.service.update({ where: { id: service.id }, data: { status: 'running' } });
 
     await logAudit({
@@ -909,13 +957,13 @@ router.post('/:id/restart', requireAuth, async (req: AuthenticatedRequest, res) 
       action: 'CONTAINER_RESTART',
       entityType: 'CONTAINER',
       entityId: service.id,
-      details: `Container "${service.containerName}" reiniciado com sucesso.`,
+      details: `Serviço "${service.name}" reiniciado com sucesso.`,
       ipAddress: req.ip,
     });
 
     return res.json({ success: true, status: 'running' });
   } catch (err: any) {
-    return res.status(500).json({ error: `Falha ao reiniciar container: ${err.message}` });
+    return res.status(500).json({ error: `Falha ao reiniciar serviço: ${err.message}` });
   }
 });
 

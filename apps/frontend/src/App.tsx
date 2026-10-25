@@ -422,9 +422,12 @@ function MainApp() {
   const handleStartContainer = async (service: Service) => {
     try {
       const res = await authFetch(`/api/services/${service.id}/start`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        showNotification('success', 'Container Iniciado', `Container "${service.containerName}" iniciado.`);
-        loadData();
+        showNotification('success', 'Serviço Iniciado', `Serviço "${service.name}" iniciado com sucesso.`);
+        await loadData();
+      } else {
+        showNotification('error', 'Falha ao Iniciar Serviço', data.error || 'Não foi possível iniciar o serviço.');
       }
     } catch (err: any) {
       showNotification('error', 'Erro', err.message);
@@ -434,9 +437,12 @@ function MainApp() {
   const handleStopContainer = async (service: Service) => {
     try {
       const res = await authFetch(`/api/services/${service.id}/stop`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        showNotification('info', 'Container Parado', `Container "${service.containerName}" interrompido.`);
-        loadData();
+        showNotification('info', 'Serviço Parado', `Serviço "${service.name}" interrompido com sucesso.`);
+        await loadData();
+      } else {
+        showNotification('error', 'Falha ao Parar Serviço', data.error || 'Não foi possível parar o serviço.');
       }
     } catch (err: any) {
       showNotification('error', 'Erro', err.message);
@@ -446,9 +452,12 @@ function MainApp() {
   const handleRestartContainer = async (service: Service) => {
     try {
       const res = await authFetch(`/api/services/${service.id}/restart`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        showNotification('success', 'Container Reiniciado', `Container "${service.containerName}" reiniciado.`);
-        loadData();
+        showNotification('success', 'Serviço Reiniciado', `Serviço "${service.name}" reiniciado com sucesso.`);
+        await loadData();
+      } else {
+        showNotification('error', 'Falha ao Reiniciar Serviço', data.error || 'Não foi possível reiniciar o serviço.');
       }
     } catch (err: any) {
       showNotification('error', 'Erro', err.message);

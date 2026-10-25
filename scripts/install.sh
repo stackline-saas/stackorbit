@@ -20,7 +20,7 @@ NC='\033[0m' # No Color
 INSTALL_DIR="/opt/stackorbit"
 REPO_RAW="https://raw.githubusercontent.com/stackline-saas/stackorbit/master"
 DEFAULT_PORT="8088"
-APP_VERSION="v0.1.1"
+APP_VERSION="v0.1.2"
 
 echo -e "${CYAN}"
 echo "  ███████╗████████╗ █████╗  ██████╗██╗  ██╗ ██████╗ ██████╗ ██████╗ ██╗████████╗"

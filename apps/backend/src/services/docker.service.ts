@@ -121,8 +121,9 @@ export class DockerService {
     }
   }
 
-  public async getContainerLogs(nameOrId: string, tail = 100): Promise<string> {
-    const container = this.docker.getContainer(nameOrId);
+  public async getContainerLogs(nameOrId: string, tail = 100, hostId?: string | null): Promise<string> {
+    const docker = await this.getClient(hostId);
+    const container = docker.getContainer(nameOrId);
     const logBuffer = (await container.logs({
       stdout: true,
       stderr: true,
@@ -165,8 +166,9 @@ export class DockerService {
     return output;
   }
 
-  public async startContainer(nameOrId: string): Promise<void> {
-    const container = this.docker.getContainer(nameOrId);
+  public async startContainer(nameOrId: string, hostId?: string | null): Promise<void> {
+    const docker = await this.getClient(hostId);
+    const container = docker.getContainer(nameOrId);
     try {
       await container.start();
     } catch (err: any) {
@@ -176,8 +178,9 @@ export class DockerService {
     }
   }
 
-  public async stopContainer(nameOrId: string): Promise<void> {
-    const container = this.docker.getContainer(nameOrId);
+  public async stopContainer(nameOrId: string, hostId?: string | null): Promise<void> {
+    const docker = await this.getClient(hostId);
+    const container = docker.getContainer(nameOrId);
     try {
       await container.stop();
     } catch (err: any) {
@@ -187,14 +190,16 @@ export class DockerService {
     }
   }
 
-  public async restartContainer(nameOrId: string): Promise<void> {
-    const container = this.docker.getContainer(nameOrId);
+  public async restartContainer(nameOrId: string, hostId?: string | null): Promise<void> {
+    const docker = await this.getClient(hostId);
+    const container = docker.getContainer(nameOrId);
     await container.restart();
   }
 
-  public async removeContainer(nameOrId: string, force = true): Promise<void> {
+  public async removeContainer(nameOrId: string, force = true, hostId?: string | null): Promise<void> {
     try {
-      const container = this.docker.getContainer(nameOrId);
+      const docker = await this.getClient(hostId);
+      const container = docker.getContainer(nameOrId);
       await container.remove({ force });
     } catch (err: any) {
       if (err.statusCode === 404) return;

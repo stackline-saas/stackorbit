@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { dockerService } from '../services/docker.service.js';
+import { traefikService } from '../services/traefik.service.js';
 import { prisma, logAudit } from '../db.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.middleware.js';
 
@@ -43,6 +44,11 @@ router.post('/:nameOrId/start', requireAuth, async (req: AuthenticatedRequest, r
   try {
     await dockerService.startContainer(nameOrId);
 
+    // Sincroniza Traefik em background
+    traefikService.applyConfig(`Container start: ${nameOrId}`).catch((err) => {
+      console.warn(`[Containers] Falha ao sincronizar Traefik: ${err.message}`);
+    });
+
     await logAudit({
       userId: req.user?.id,
       userName: req.user?.name || 'Administrador',
@@ -65,6 +71,11 @@ router.post('/:nameOrId/stop', requireAuth, async (req: AuthenticatedRequest, re
   try {
     await dockerService.stopContainer(nameOrId);
 
+    // Sincroniza Traefik em background
+    traefikService.applyConfig(`Container stop: ${nameOrId}`).catch((err) => {
+      console.warn(`[Containers] Falha ao sincronizar Traefik: ${err.message}`);
+    });
+
     await logAudit({
       userId: req.user?.id,
       userName: req.user?.name || 'Administrador',
@@ -86,6 +97,11 @@ router.post('/:nameOrId/restart', requireAuth, async (req: AuthenticatedRequest,
   const { nameOrId } = req.params;
   try {
     await dockerService.restartContainer(nameOrId);
+
+    // Sincroniza Traefik em background
+    traefikService.applyConfig(`Container restart: ${nameOrId}`).catch((err) => {
+      console.warn(`[Containers] Falha ao sincronizar Traefik: ${err.message}`);
+    });
 
     await logAudit({
       userId: req.user?.id,

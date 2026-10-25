@@ -172,7 +172,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
   // Load Balancing state for domain creation
   const [domainRoutingMode, setDomainRoutingMode] = useState<'single' | 'load_balancer'>('single');
   const [lbSelectedContainers, setLbSelectedContainers] = useState<string[]>([]);
-  const [lbHealthCheckPath, setLbHealthCheckPath] = useState('');
+  const [lbHealthCheckPath, setLbHealthCheckPath] = useState('/');
 
   // Selected Container for Logs and Terminal
   const [targetContainerFocus, setTargetContainerFocus] = useState<string>(service.containerName);
@@ -2994,17 +2994,6 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                           <span className="text-[10px] text-slate-400">Atalhos:</span>
                           <button
                             type="button"
-                            onClick={() => setLbHealthCheckPath('')}
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                              !lbHealthCheckPath
-                                ? 'bg-indigo-100 text-indigo-700 font-bold border border-indigo-200'
-                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}
-                          >
-                            Nenhum (Direto)
-                          </button>
-                          <button
-                            type="button"
                             onClick={() => setLbHealthCheckPath('/')}
                             className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
                               lbHealthCheckPath === '/'
@@ -3012,7 +3001,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                             }`}
                           >
-                            / (Raiz)
+                            / (Raiz - Recomendado)
                           </button>
                           <button
                             type="button"
@@ -3024,6 +3013,17 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                             }`}
                           >
                             /health
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setLbHealthCheckPath('')}
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                              !lbHealthCheckPath
+                                ? 'bg-indigo-100 text-indigo-700 font-bold border border-indigo-200'
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            Desativado
                           </button>
                         </div>
                       </div>

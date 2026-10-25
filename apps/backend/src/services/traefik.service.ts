@@ -162,15 +162,19 @@ export class TraefikService {
 
         const traefikServiceName = `service-${domain.domainName.replace(/[^a-zA-Z0-9-]/g, '-')}`;
 
+        // Para Load Balancing (mais de 1 servidor) ou quando healthCheckPath for informado,
+        // garantimos active health checking no Traefik para remover instâncias paradas em até 3s.
+        const healthCheckPath = domain.healthCheckPath || (targets.length > 1 ? '/' : undefined);
+
         httpServices[traefikServiceName] = {
           loadBalancer: {
             servers: targets.map((t) => ({ url: resolveTargetUrl(t, service.dockerHost) })),
             passHostHeader: true,
-            ...(domain.healthCheckPath
+            ...(healthCheckPath
               ? {
                   healthCheck: {
-                    path: domain.healthCheckPath.startsWith('/') ? domain.healthCheckPath : `/${domain.healthCheckPath}`,
-                    interval: '5s',
+                    path: healthCheckPath.startsWith('/') ? healthCheckPath : `/${healthCheckPath}`,
+                    interval: '3s',
                     timeout: '2s',
                   },
                 }

@@ -101,6 +101,12 @@ EOF
   echo -e "${GREEN}[✓]${NC} Arquivo .env gerado com sucesso."
 else
   echo -e "${GREEN}[✓]${NC} Arquivo .env já existente mantido com segurança."
+  # Atualizar APP_VERSION no .env para a nova versão da release
+  if grep -q "APP_VERSION=" "${INSTALL_DIR}/.env"; then
+    sed -i "s/APP_VERSION=.*/APP_VERSION=${APP_VERSION}/" "${INSTALL_DIR}/.env"
+  else
+    echo "APP_VERSION=${APP_VERSION}" >> "${INSTALL_DIR}/.env"
+  fi
 fi
 
 # 6. Baixar docker-compose.yml de produção

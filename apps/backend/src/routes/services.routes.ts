@@ -1118,23 +1118,47 @@ router.post('/:id/scale', requireAuth, async (req: AuthenticatedRequest, res) =>
       data: { notes: updatedNotes },
     });
 
-    // If there are domains in Load Balancer mode pointing to this service, sync them!
+    // If there are domains in Load Balancer mode pointing to this service, sync them preserving other components!
     const domains = await prisma.domain.findMany({ where: { serviceId: service.id } });
     let domainsUpdated = 0;
     for (const dom of domains) {
       if (dom.targetContainer && dom.targetContainer.startsWith('[')) {
         try {
-          const targets: Array<{ container: string; port: number }> = JSON.parse(dom.targetContainer);
+          let targets: Array<{ container: string; port: number }> = JSON.parse(dom.targetContainer);
           const targetPort = dom.targetPort || service.internalPort;
-          const updatedTargets = result.current.map((cName) => ({
-            container: cName,
-            port: targetPort,
-          }));
-          await prisma.domain.update({
-            where: { id: dom.id },
-            data: { targetContainer: JSON.stringify(updatedTargets) },
-          });
-          domainsUpdated++;
+
+          // Check if this domain targets any containers of this composeService
+          const targetsThisComponent = targets.some(
+            (t) =>
+              result.current.includes(t.container) ||
+              result.removed.includes(t.container) ||
+              t.container.includes(composeService)
+          );
+
+          if (targetsThisComponent) {
+            // 1. Remove downscaled replicas
+            targets = targets.filter((t) => !result.removed.includes(t.container));
+
+            // 2. Add newly scaled replicas preserving existing containers from other components
+            for (const addName of result.added) {
+              if (!targets.some((t) => t.container === addName)) {
+                targets.push({ container: addName, port: targetPort });
+              }
+            }
+
+            // 3. Ensure all current replicas of this service are present
+            for (const curName of result.current) {
+              if (!targets.some((t) => t.container === curName)) {
+                targets.push({ container: curName, port: targetPort });
+              }
+            }
+
+            await prisma.domain.update({
+              where: { id: dom.id },
+              data: { targetContainer: JSON.stringify(targets) },
+            });
+            domainsUpdated++;
+          }
         } catch {
           // ignore parse errors
         }

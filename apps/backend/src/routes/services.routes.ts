@@ -103,8 +103,14 @@ router.get('/', requireAuth, async (req, res) => {
 
     const enriched = services.map((svc) => {
       const matched = matchContainersForService(svc, allContainers);
+      const { userNotes, meta } = parseServiceMetadata(svc.notes);
       return {
         ...svc,
+        notes: userNotes,
+        meta: {
+          ...meta,
+          gitToken: meta.gitToken ? `••••••••${meta.gitToken.slice(-4)}` : undefined,
+        },
         containerCount: matched.length > 0 ? matched.length : 1,
       };
     });
@@ -320,7 +326,12 @@ router.get('/:id', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Serviço não encontrado.' });
     }
     const { userNotes, meta } = parseServiceMetadata(service.notes);
-    return res.json({ ...service, userNotes, meta });
+    return res.json({
+      ...service,
+      notes: userNotes,
+      userNotes,
+      meta,
+    });
   } catch (err: any) {
     return res.status(500).json({ error: `Erro ao obter serviço: ${err.message}` });
   }

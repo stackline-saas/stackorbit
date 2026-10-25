@@ -291,7 +291,14 @@ export const ServicesView: React.FC<ServicesViewProps> = ({
                             </button>
                           )}
                         </div>
-                        {svc.notes && <p className="text-[11px] text-slate-400 mt-0.5 truncate max-w-xs">{svc.notes}</p>}
+                        {svc.notes && (
+                          (() => {
+                            const cleanNotes = svc.notes.replace(/<!--dm-meta:[\s\S]*?-->/g, '').trim();
+                            return cleanNotes ? (
+                              <p className="text-[11px] text-slate-400 mt-0.5 truncate max-w-xs">{cleanNotes}</p>
+                            ) : null;
+                          })()
+                        )}
                         {svc.sourceType === 'GITHUB' && svc.lastBuiltAt && (
                           <p className="text-[10px] text-slate-400 mt-0.5">
                             Build: {new Date(svc.lastBuiltAt).toLocaleTimeString('pt-BR')}

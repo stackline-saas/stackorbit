@@ -127,7 +127,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
   const [containerName, setContainerName] = useState(service.containerName);
   const [internalPort, setInternalPort] = useState(service.internalPort);
   const [image, setImage] = useState(service.image || '');
-  const [notes, setNotes] = useState(service.notes || '');
+  const [notes, setNotes] = useState((service.notes || '').replace(/<!--dm-meta:[\s\S]*?-->/g, '').trim());
   const [isActive, setIsActive] = useState(service.isActive);
   const [isDefault, setIsDefault] = useState(service.isDefault);
 
@@ -729,7 +729,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
     setContainerName(service.containerName);
     setInternalPort(service.internalPort);
     setImage(service.image || '');
-    setNotes(service.notes || '');
+    setNotes((service.notes || '').replace(/<!--dm-meta:[\s\S]*?-->/g, '').trim());
     setIsActive(service.isActive);
     setIsDefault(service.isDefault);
     setSourceType(service.sourceType || 'IMAGE');

@@ -1,6 +1,6 @@
 # ===================================================================
 # TRAEFIK DYNAMIC CONFIGURATION - GERADO AUTOMATICAMENTE PELO BACKEND
-# Gerado em: 2026-10-24T18:38:40.738Z
+# Gerado em: 2026-10-25T16:41:11.739Z
 # ===================================================================
 http:
   routers:
@@ -137,6 +137,10 @@ http:
           - url: http://example-frontend-2-1:80
           - url: http://example-frontend-3-1:80
         passHostHeader: true
+        healthCheck:
+          path: /
+          interval: 3s
+          timeout: 2s
     service-web-portal:
       loadBalancer:
         servers:

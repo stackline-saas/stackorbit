@@ -62,7 +62,7 @@ Este documento detalha cada fase de execução da feature de **Dockers Remotos, 
 - [x] Bridge de streaming para converter comandos do Dockerode sobre a conexão WebSocket reversa.
 - [x] Na interface, botão "Copiar comando de instalação do agente" com 1 clique:
   ```bash
-  docker run -d --name dd-agent --restart=always -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/vcmuniz/agent -token <TOKEN>
+  docker run -d --name stackorbit-agent --restart=always -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/stackline-saas/agent -token <TOKEN>
   ```
 
 ### Critérios de Aceite

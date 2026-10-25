@@ -1,4 +1,4 @@
-# BRIEFING DE ARQUITETURA E DESENVOLVIMENTO: BACKEND & WORKER DOCKER DOMAIN MANAGER
+# BRIEFING DE ARQUITETURA E DESENVOLVIMENTO: BACKEND & WORKER STACKORBIT
 
 Você é um Engenheiro de Software Sênior especialista em DevOps, Docker Engine, Traefik v3 e Node.js/TypeScript.
 Sua missão é desenvolver o **Backend (API REST)** e o **Worker em Segundo Plano** para se integrar a um Frontend SPA já existente em React + Tailwind CSS.

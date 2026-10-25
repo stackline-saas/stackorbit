@@ -7,7 +7,7 @@ import { simpleGit } from 'simple-git';
 import tar from 'tar-fs';
 import dotenv from 'dotenv';
 import Docker from 'dockerode';
-import { prisma, logAudit } from '@docker-domain/database';
+import { prisma, logAudit } from '@stackorbit/database';
 import { createDockerClient, savedDockerHost } from './services/docker-connection.js';
 import { traefikService } from './services/traefik.service.js';
 
@@ -17,7 +17,7 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 const DOCKER_NETWORK = process.env.DOCKER_NETWORK || 'proxy-net';
 
 console.log(`\n==================================================`);
-console.log(`⚙️ Docker Domain Manager Dedicated Background Worker`);
+console.log(`⚙️ StackOrbit Dedicated Background Worker`);
 console.log(`📦 Redis Queue: ${REDIS_URL}`);
 console.log(`🌐 Network: ${DOCKER_NETWORK}`);
 console.log(`==================================================\n`);

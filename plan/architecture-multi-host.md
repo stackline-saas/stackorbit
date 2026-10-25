@@ -2,7 +2,7 @@
 
 ## 1. Visão Geral e Objetivos
 
-Evoluir o **Docker Domain Manager** de um gerenciador mono-host para uma **plataforma completa de orquestração multi-projetos e multi-servidores**.
+Evoluir o **StackOrbit** de um gerenciador mono-host para uma **plataforma completa de orquestração multi-projetos e multi-servidores**.
 
 O sistema permitirá:
 1. **Hierarquia por Projetos:** Cada projeto funciona como um ambiente isolado com seus próprios servidores (Docker Hosts) e serviços.
@@ -20,7 +20,7 @@ O sistema permitirá:
 
 ```mermaid
 flowchart TD
-    subgraph PainelCentral["Docker Domain Manager (Central)"]
+    subgraph PainelCentral["StackOrbit (Central)"]
         UI["Frontend React / Vite (Project Switcher)"]
         API["Backend API (Express + Prisma)"]
         Hub["Agent WebSocket Gateway (Hub)"]

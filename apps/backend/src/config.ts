@@ -7,7 +7,7 @@ dotenv.config();
 export const config = {
   port: Number(process.env.PORT) || 3000,
   nodeEnv: process.env.NODE_ENV || 'development',
-  jwtSecret: process.env.JWT_SECRET || 'docker-domain-manager-jwt-secret-key-2026-strict',
+  jwtSecret: process.env.JWT_SECRET || 'stackorbit-jwt-secret-key-2026-strict',
   jwtExpiresIn: '7d',
   
   // Docker socket: Support Windows Named Pipe or Unix Socket

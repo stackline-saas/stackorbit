@@ -147,7 +147,7 @@ if (frontendDistPath) {
 } else {
   app.get('/', (req, res) => {
     res.json({
-      name: 'Docker Domain Manager API',
+      name: 'StackOrbit API',
       status: 'online',
       version: '1.0.0',
       docs: '/api/dashboard',
@@ -183,7 +183,7 @@ async function start() {
 
   server.listen(config.port, '0.0.0.0', () => {
     console.log(`\n==================================================`);
-    console.log(`🚀 Docker Domain Manager Backend API`);
+    console.log(`🚀 StackOrbit Backend API`);
     console.log(`📡 Porta: ${config.port}`);
     console.log(`🐳 Docker Socket: ${config.dockerSocketPath}`);
     console.log(`🌐 Ambiente: ${config.nodeEnv}`);

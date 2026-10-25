@@ -4,11 +4,11 @@ import crypto from 'node:crypto';
 import type { User, Service, Domain, ProxyConfiguration, AuditLog, AppSettings, DockerContainerInfo } from '../types/index.ts';
 
 // Hashing helper using PBKDF2
-export function hashPassword(password: string, salt = 'docker-domain-manager-salt-2026'): string {
+export function hashPassword(password: string, salt = 'stackorbit-salt-2026'): string {
   return crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
 }
 
-export function verifyPassword(password: string, hash: string, salt = 'docker-domain-manager-salt-2026'): boolean {
+export function verifyPassword(password: string, hash: string, salt = 'stackorbit-salt-2026'): boolean {
   const computed = hashPassword(password, salt);
   return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(hash));
 }

@@ -40,7 +40,7 @@ export const LoginView: React.FC = () => {
               DM
             </div>
             <div>
-              <h1 className="text-base font-bold tracking-tight">Docker Domain Manager</h1>
+              <h1 className="text-base font-bold tracking-tight">StackOrbit</h1>
               <p className="text-xs text-slate-400">Roteamento Traefik + Cloudflare Origin</p>
             </div>
           </div>

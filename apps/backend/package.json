@@ -1,7 +1,7 @@
 {
-  "name": "@docker-domain/backend",
+  "name": "@stackorbit/backend",
   "version": "1.0.0",
-  "description": "REST API Backend for Docker Domain Manager",
+  "description": "REST API Backend for StackOrbit",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
@@ -11,8 +11,8 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@docker-domain/database": "workspace:*",
-    "@docker-domain/shared": "workspace:*",
+    "@stackorbit/database": "workspace:*",
+    "@stackorbit/shared": "workspace:*",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.10.0",
     "cors": "^2.8.5",

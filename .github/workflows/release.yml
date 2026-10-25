@@ -71,7 +71,7 @@ jobs:
       - name: 🚀 Criar GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Docker Domain Manager ${{ steps.meta.outputs.tag }}
+          name: StackOrbit ${{ steps.meta.outputs.tag }}
           tag_name: ${{ steps.meta.outputs.tag }}
           generate_release_notes: true
           files: |
@@ -80,7 +80,7 @@ jobs:
             scripts/install.ps1
             scripts/update.sh
           body: |
-            ## 🚀 Docker Domain Manager ${{ steps.meta.outputs.tag }}
+            ## 🚀 StackOrbit ${{ steps.meta.outputs.tag }}
             
             ### 📦 Instalação em 1 comando (Linux VPS):
             ```bash
@@ -94,7 +94,7 @@ jobs:
             
             ### 🔄 Atualização de versão existente:
             ```bash
-            cd /opt/docker-domain && ./update.sh
+            cd /opt/stackorbit && ./update.sh
             ```
             *(Ou clique diretamente no botão **"Atualizar Sistema"** na aba de Configurações do painel web)*
         env:

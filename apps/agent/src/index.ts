@@ -26,7 +26,7 @@ if (!agentToken) {
 }
 
 console.log('==================================================');
-console.log('🚀 Docker Domain Manager - Edge Agent');
+console.log('🚀 StackOrbit - Edge Agent');
 console.log(`📡 Manager URL: ${managerUrl}`);
 console.log(`🐳 Docker Socket: ${dockerSocket}`);
 console.log('==================================================\n');

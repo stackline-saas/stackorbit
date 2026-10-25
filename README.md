@@ -1,12 +1,12 @@
-# 🚀 Docker Domain Manager
+# StackOrbit (PNPM Monorepo: Backend & Worker PaaS)
 
 <div align="center">
 
-![Docker Domain Manager Banner](https://raw.githubusercontent.com/vcmuniz/docker-domain/master/apps/frontend/public/favicon.svg)
+![StackOrbit Banner](https://raw.githubusercontent.com/stackline-saas/stackorbit/master/apps/frontend/public/favicon.svg)
 
 ### Orquestrador Moderno de Containers, Proxy Reverso Traefik v3 e Load Balancing Multi-Host
 
-[![Release](https://img.shields.io/badge/version-v0.1.0--beta-blue.svg?style=for-the-badge)](https://github.com/vcmuniz/docker-domain/releases)
+[![Release](https://img.shields.io/badge/version-v0.1.0--beta-blue.svg?style=for-the-badge)](https://github.com/stackline-saas/stackorbit/releases)
 [![Docker](https://img.shields.io/badge/Docker-Compose_v2-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![Traefik](https://img.shields.io/badge/Traefik-v3.1-24A1C1?style=for-the-badge&logo=traefikproxy&logoColor=white)](https://traefik.io/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -25,9 +25,9 @@
 
 ---
 
-## 💡 O que é o Docker Domain Manager?
+## 💡 O que é o StackOrbit?
 
-O **Docker Domain Manager** é uma plataforma PaaS *self-hosted* projetada para simplificar a gestão de microsserviços, roteamento de múltiplos domínios e alta disponibilidade de containers Docker.
+O **StackOrbit** é uma plataforma PaaS *self-hosted* projetada para simplificar a gestão de microsserviços, roteamento de múltiplos domínios e alta disponibilidade de containers Docker.
 
 Com ele, você transforma qualquer VPS Linux ou servidor bare-metal em um ambiente de produção robusto, com **Traefik v3.1 integrado**, suporte nativo a **Cloudflare SSL Full (Strict)**, balanceamento de carga entre múltiplos nós remotos via SSH, deploys automatizados via Git Webhooks e uma interface gráfica moderna e fluida.
 
@@ -42,7 +42,7 @@ O instalador oficial detecta sua distribuição Linux, instala e valida o Docker
 Execute diretamente no terminal do seu servidor como `root` (ou com `sudo`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vcmuniz/docker-domain/master/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/stackline-saas/stackorbit/master/scripts/install.sh | bash
 ```
 
 ---
@@ -52,23 +52,25 @@ curl -fsSL https://raw.githubusercontent.com/vcmuniz/docker-domain/master/script
 Abra o PowerShell como Administrador e execute:
 
 ```powershell
-irm https://raw.githubusercontent.com/vcmuniz/docker-domain/master/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/stackline-saas/stackorbit/master/scripts/install.ps1 | iex
 ```
 
 ---
 
 ### 🐳 Instalação Manual com Docker Compose
 
-Caso prefira gerenciar você mesmo seu arquivo de configuração:
+Caso prefira clonar o repositório ou gerenciar você mesmo seu arquivo de configuração:
 
 ```bash
-# 1. Crie a pasta da aplicação
-mkdir -p /opt/docker-domain && cd /opt/docker-domain
+# Opção A: Clonar repositório oficial
+git clone https://github.com/stackline-saas/stackorbit.git
+cd stackorbit
 
-# 2. Baixe o docker-compose de produção
-curl -fsSL https://raw.githubusercontent.com/vcmuniz/docker-domain/master/docker-compose.prod.yml -o docker-compose.yml
+# Opção B: Download direto do compose
+mkdir -p /opt/stackorbit && cd /opt/stackorbit
+curl -fsSL https://raw.githubusercontent.com/stackline-saas/stackorbit/master/docker-compose.prod.yml -o docker-compose.yml
 
-# 3. Crie seu .env com senhas seguras
+# Criar .env com credenciais seguras
 cat <<EOF > .env
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=$(openssl rand -hex 16)
@@ -78,7 +80,7 @@ PORT=8088
 APP_VERSION=v0.1.0
 EOF
 
-# 4. Inicie os containers oficiais
+# Iniciar containers oficiais
 docker compose up -d
 ```
 
@@ -122,7 +124,7 @@ flowchart TD
         CF["Cloudflare Edge (Origin CA / Full Strict)"]
     end
 
-    subgraph Host ["🖥️ Servidor Docker Domain Manager (Portas 80 / 443 / 8088)"]
+    subgraph Host ["🖥️ Servidor StackOrbit (Portas 80 / 443 / 8088)"]
         Traefik["Traefik v3.1 (Proxy Reverso)"]
         API["Backend API & SPA Web (:8088)"]
         Worker["Background Worker (BullMQ + Git)"]
@@ -157,7 +159,7 @@ flowchart TD
 
 ## 🔄 Atualização do Sistema
 
-Quando uma nova versão do **Docker Domain Manager** for publicada, você pode atualizá-la de duas formas:
+Quando uma nova versão do **StackOrbit** for publicada, você pode atualizá-la de duas formas:
 
 ### Opção 1: Diretamente pela Interface Web (Recomendado)
 1. Acesse o painel web no menu **Configurações**.
@@ -166,7 +168,7 @@ Quando uma nova versão do **Docker Domain Manager** for publicada, você pode a
 
 ### Opção 2: Pelo Terminal do Servidor (CLI)
 ```bash
-cd /opt/docker-domain
+cd /opt/stackorbit
 ./update.sh
 ```
 
@@ -180,7 +182,7 @@ cd /opt/docker-domain
 - **Portas Liberadas no Firewall:**
   - `80/TCP`: HTTP (redirecionado automaticamente para HTTPS pelo Traefik)
   - `443/TCP`: HTTPS (tráfego seguro de aplicações)
-  - `8088/TCP`: Interface Administrativa do Docker Domain Manager
+  - `8088/TCP`: Interface Administrativa do StackOrbit
 
 ---
 

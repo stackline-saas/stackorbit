@@ -57,7 +57,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   }, []);
 
   const handleTriggerUpdate = async () => {
-    if (!confirm('Deseja iniciar a atualização do Docker Domain Manager? Os containers serão atualizados para a versão mais recente.')) {
+    if (!confirm('Deseja iniciar a atualização do StackOrbit? Os containers serão atualizados para a versão mais recente.')) {
       return;
     }
     setIsUpdating(true);

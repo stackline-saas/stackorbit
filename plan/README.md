@@ -1,6 +1,6 @@
 # 🗺️ Diretório de Planos de Arquitetura & Evolução
 
-Este diretório contém as especificações técnicas, decisões arquiteturais e cronogramas de implementação de novas funcionalidades do **Docker Domain Manager**.
+Este diretório contém as especificações técnicas, decisões arquiteturais e cronogramas de implementação de novas funcionalidades do **StackOrbit**.
 
 ---
 

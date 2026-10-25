@@ -1,25 +1,25 @@
 # ==============================================================================
-#  🚀 DOCKER DOMAIN MANAGER - INSTALADOR WINDOWS / POWERSHELL
+#  🚀 STACKORBIT - INSTALADOR WINDOWS / POWERSHELL
 # ==============================================================================
 #  Execução em comando único no PowerShell:
-#  irm https://raw.githubusercontent.com/vcmuniz/docker-domain/master/scripts/install.ps1 | iex
+#  irm https://raw.githubusercontent.com/stackline-saas/stackorbit/master/scripts/install.ps1 | iex
 # ==============================================================================
 
 $ErrorActionPreference = 'Stop'
 
-$InstallDir = "C:\docker-domain"
-$RepoRaw = "https://raw.githubusercontent.com/vcmuniz/docker-domain/master"
+$InstallDir = "C:\stackorbit"
+$RepoRaw = "https://raw.githubusercontent.com/stackline-saas/stackorbit/master"
 $DefaultPort = 8088
 $AppVersion = "v0.1.0"
 
 Write-Host ""
-Write-Host "  ██████╗  ██████╗  ██████╗██╗  ██╗███████╗██████╗ " -ForegroundColor Cyan
-Write-Host "  ██╔══██╗██╔═══██╗██╔════╝██║ ██╔╝██╔════╝██╔══██╗" -ForegroundColor Cyan
-Write-Host "  ██║  ██║██║   ██║██║     █████╔╝ █████╗  ██████╔╝" -ForegroundColor Cyan
-Write-Host "  ██║  ██║██║   ██║██║     ██╔═██╗ ██╔══╝  ██╔══██╗" -ForegroundColor Cyan
-Write-Host "  ██████╔╝╚██████╔╝╚██████╗██║  ██╗███████╗██║  ██║" -ForegroundColor Cyan
-Write-Host "  ╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝" -ForegroundColor Cyan
-Write-Host "        DOMAIN MANAGER - INSTALADOR WINDOWS        " -ForegroundColor Cyan
+Write-Host "  ███████╗████████╗ █████╗  ██████╗██╗  ██╗ ██████╗ ██████╗ ██████╗ ██╗████████╗" -ForegroundColor Cyan
+Write-Host "  ██╔════╝╚══██╔══╝██╔══██╗██╔════╝██║ ██╔╝██╔═══██╗██╔══██╗██╔══██╗██║╚══██╔══╝" -ForegroundColor Cyan
+Write-Host "  ███████╗   ██║   ███████║██║     █████╔╝ ██║   ██║██████╔╝██████╔╝██║   ██║   " -ForegroundColor Cyan
+Write-Host "  ╚════██║   ██║   ██╔══██║██║     ██╔═██╗ ██║   ██║██╔══██╗██╔══██╗██║   ██║   " -ForegroundColor Cyan
+Write-Host "  ███████║   ██║   ██║  ██║╚██████╗██║  ██╗╚██████╔╝██║  ██║██████╔╝██║   ██║   " -ForegroundColor Cyan
+Write-Host "  ╚══════╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═════╝ ╚═╝   ╚═╝   " -ForegroundColor Cyan
+Write-Host "                       STACKORBIT - INSTALADOR WINDOWS                          " -ForegroundColor Cyan
 Write-Host ""
 
 # 1. Verificar Docker
@@ -82,7 +82,7 @@ docker compose up -d
 
 Write-Host ""
 Write-Host "====================================================================" -ForegroundColor Green
-Write-Host "  🎉 Docker Domain Manager $AppVersion (Beta) Instalado com Sucesso!" -ForegroundColor Green
+Write-Host "  🎉 StackOrbit $AppVersion (Beta) Instalado com Sucesso!" -ForegroundColor Green
 Write-Host "====================================================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  🌐 Painel de Controle:   http://localhost:$DefaultPort" -ForegroundColor Cyan

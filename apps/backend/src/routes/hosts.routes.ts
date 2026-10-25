@@ -287,11 +287,11 @@ router.get('/:id/agent-setup', requireAuth, async (req, res) => {
     const proto = req.headers['x-forwarded-proto'] === 'https' || req.secure ? 'wss' : 'ws';
     const managerWsUrl = `${proto}://${hostHeader}/ws/agent`;
 
-    const dockerRunCommand = `docker run -d --name dd-agent --restart=always \\
+    const dockerRunCommand = `docker run -d --name stackorbit-agent --restart=always \\
   -v /var/run/docker.sock:/var/run/docker.sock \\
   -e MANAGER_WS_URL="${managerWsUrl}" \\
   -e AGENT_TOKEN="${token}" \\
-  ghcr.io/vcmuniz/agent:latest`;
+  ghcr.io/stackline-saas/agent:latest`;
 
     const nodeCommand = `npx tsx apps/agent/src/index.ts --manager "${managerWsUrl}" --token "${token}"`;
 

@@ -1,5 +1,5 @@
 {
-  "name": "@docker-domain/database",
+  "name": "@stackorbit/database",
   "version": "1.0.0",
   "description": "PostgreSQL database models, Prisma client and migrations",
   "type": "module",

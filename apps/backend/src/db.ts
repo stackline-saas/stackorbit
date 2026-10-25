@@ -1,2 +1,2 @@
-export { prisma, logAudit, type PrismaClient } from '@docker-domain/database';
-export * from '@docker-domain/database';
+export { prisma, logAudit, type PrismaClient } from '@stackorbit/database';
+export * from '@stackorbit/database';

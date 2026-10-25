@@ -1,6 +1,6 @@
 # 🤝 Guia de Contribuição e Fluxo Colaborativo (GitHub Flow)
 
-Obrigado por contribuir com o **Docker Domain Manager**! Este documento orienta como estruturar branches, commits, testes e Pull Requests para manter o repositório organizado, estável e ágil.
+Obrigado por contribuir com o **StackOrbit**! Este documento orienta como estruturar branches, commits, testes e Pull Requests para manter o repositório organizado, estável e ágil.
 
 ---
 

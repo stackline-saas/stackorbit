@@ -1,5 +1,5 @@
 # ==============================================================================
-# DOCKER DOMAIN MANAGER - PRODUÇÃO (DISTRIBUIÇÃO OFICIAL GHCR)
+# STACKORBIT - PRODUÇÃO (DISTRIBUIÇÃO OFICIAL GHCR)
 # ==============================================================================
 # Este arquivo roda a stack completa utilizando imagens pré-compiladas do GHCR.
 # Instalação e execução com 1 comando.
@@ -11,7 +11,7 @@ services:
   # ----------------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
-    container_name: domain-manager-db
+    container_name: stackorbit-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -32,7 +32,7 @@ services:
   # ----------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
-    container_name: domain-manager-redis
+    container_name: stackorbit-redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
@@ -50,7 +50,7 @@ services:
   # ----------------------------------------------------------------------------
   traefik:
     image: traefik:v3.1
-    container_name: domain-manager-traefik
+    container_name: stackorbit-traefik
     restart: unless-stopped
     command:
       - "--global.checknewversion=false"
@@ -80,8 +80,8 @@ services:
   # 4. BACKEND API REST + FRONTEND EMBUTIDO
   # ----------------------------------------------------------------------------
   api:
-    image: ghcr.io/vcmuniz/docker-domain-api:${APP_VERSION:-latest}
-    container_name: domain-manager-api
+    image: ghcr.io/stackline-saas/stackorbit-api:${APP_VERSION:-latest}
+    container_name: stackorbit-api
     restart: unless-stopped
     ports:
       - "${PORT:-8088}:3000"
@@ -89,7 +89,7 @@ services:
       - PORT=3000
       - NODE_ENV=production
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-domainsecurepass}@postgres:5432/${POSTGRES_DB:-domainmanager}?schema=public
-      - JWT_SECRET=${JWT_SECRET:-docker-domain-manager-jwt-secret-key-2026-strict}
+      - JWT_SECRET=${JWT_SECRET:-stackorbit-jwt-secret-key-2026-strict}
       - DOCKER_SOCKET_PATH=/var/run/docker.sock
       - TRAEFIK_DYNAMIC_CONFIG_PATH=/app/traefik/dynamic/dynamic_conf.yml
       - TRAEFIK_CERTS_DIR=/app/traefik/certs
@@ -112,8 +112,8 @@ services:
   # 5. BACKGROUND WORKER
   # ----------------------------------------------------------------------------
   worker:
-    image: ghcr.io/vcmuniz/docker-domain-worker:${APP_VERSION:-latest}
-    container_name: domain-manager-worker
+    image: ghcr.io/stackline-saas/stackorbit-worker:${APP_VERSION:-latest}
+    container_name: stackorbit-worker
     restart: unless-stopped
     environment:
       - NODE_ENV=production
@@ -144,10 +144,10 @@ networks:
 
 volumes:
   postgres-data:
-    name: docker-domain_postgres-data
+    name: stackorbit_postgres-data
   redis-data:
-    name: docker-domain_redis-data
+    name: stackorbit_redis-data
   traefik-dynamic:
-    name: docker-domain_traefik-dynamic
+    name: stackorbit_traefik-dynamic
   traefik-certs:
-    name: docker-domain_traefik-certs
+    name: stackorbit_traefik-certs

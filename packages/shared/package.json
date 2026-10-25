@@ -1,5 +1,5 @@
 {
-  "name": "@docker-domain/shared",
+  "name": "@stackorbit/shared",
   "version": "1.0.0",
   "description": "Shared models, types, templates and validators",
   "type": "module",

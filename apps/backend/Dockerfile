@@ -17,11 +17,11 @@ COPY apps/frontend ./apps/frontend
 RUN corepack enable && corepack prepare pnpm@9.12.3 --activate
 RUN pnpm install --frozen-lockfile=false
 
-RUN pnpm --filter @docker-domain/shared build
-RUN pnpm --filter @docker-domain/database prisma:generate
-RUN pnpm --filter @docker-domain/database build
-RUN pnpm --filter @docker-domain/backend build
-RUN pnpm --filter @docker-domain/frontend build
+RUN pnpm --filter @stackorbit/shared build
+RUN pnpm --filter @stackorbit/database prisma:generate
+RUN pnpm --filter @stackorbit/database build
+RUN pnpm --filter @stackorbit/backend build
+RUN pnpm --filter @stackorbit/frontend build
 
 # ==============================================================================
 # Runner Image
@@ -54,4 +54,4 @@ RUN mkdir -p /app/traefik/dynamic /app/traefik/certs
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "pnpm --filter @docker-domain/database prisma:push --accept-data-loss && pnpm --filter @docker-domain/database prisma:seed && node apps/backend/dist/server.js"]
+CMD ["sh", "-c", "pnpm --filter @stackorbit/database prisma:push --accept-data-loss && pnpm --filter @stackorbit/database prisma:seed && node apps/backend/dist/server.js"]

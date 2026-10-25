@@ -1,5 +1,5 @@
 {
-  "name": "@docker-domain/frontend",
+  "name": "@stackorbit/frontend",
   "private": true,
   "version": "1.0.0",
   "type": "module",

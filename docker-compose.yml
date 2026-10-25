@@ -1,5 +1,5 @@
 # ==============================================================================
-# DOCKER-COMPOSE: DOCKER DOMAIN MANAGER (TRAEFIK + POSTGRESQL + REDIS + API + WORKER)
+# DOCKER-COMPOSE: STACKORBIT (TRAEFIK + POSTGRESQL + REDIS + API + WORKER)
 # ==============================================================================
 
 services:
@@ -8,7 +8,7 @@ services:
   # ----------------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
-    container_name: domain-manager-db
+    container_name: stackorbit-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -31,7 +31,7 @@ services:
   # ----------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
-    container_name: domain-manager-redis
+    container_name: stackorbit-redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
@@ -51,7 +51,7 @@ services:
   # ----------------------------------------------------------------------------
   traefik:
     image: traefik:v3.1
-    container_name: domain-manager-traefik
+    container_name: stackorbit-traefik
     restart: unless-stopped
     command:
       - "--global.checknewversion=false"
@@ -84,16 +84,16 @@ services:
     build:
       context: .
       dockerfile: apps/backend/Dockerfile
-    container_name: domain-manager-api
+    container_name: stackorbit-api
     restart: unless-stopped
-    command: ["sh", "-c", "pnpm --filter @docker-domain/database prisma:push --accept-data-loss && node packages/database/dist/seed.js && node apps/backend/dist/server.js"]
+    command: ["sh", "-c", "pnpm --filter @stackorbit/database prisma:push --accept-data-loss && pnpm --filter @stackorbit/database prisma:seed && node apps/backend/dist/server.js"]
     ports:
       - "3000:3000"
     environment:
       - PORT=3000
       - NODE_ENV=production
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgrespassword}@postgres:5432/${POSTGRES_DB:-domainmanager}?schema=public
-      - JWT_SECRET=${JWT_SECRET:-docker-domain-manager-jwt-secret-key-2026-strict}
+      - JWT_SECRET=${JWT_SECRET:-stackorbit-jwt-secret-key-2026-strict}
       - DOCKER_SOCKET_PATH=/var/run/docker.sock
       - TRAEFIK_DYNAMIC_CONFIG_PATH=/app/traefik/dynamic/dynamic_conf.yml
       - TRAEFIK_CERTS_DIR=/app/traefik/certs
@@ -118,7 +118,7 @@ services:
     build:
       context: .
       dockerfile: apps/worker/Dockerfile
-    container_name: domain-manager-worker
+    container_name: stackorbit-worker
     restart: unless-stopped
     command: ["node", "apps/worker/dist/index.js"]
     environment:
@@ -150,6 +150,10 @@ networks:
 
 volumes:
   postgres-data:
+    name: stackorbit_postgres-data
   redis-data:
+    name: stackorbit_redis-data
   traefik-dynamic:
+    name: stackorbit_traefik-dynamic
   traefik-certs:
+    name: stackorbit_traefik-certs

@@ -194,7 +194,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
           <div>
             <h1 className="text-sm font-bold text-white tracking-tight whitespace-nowrap group-hover:text-blue-400 transition-colors">
-              Docker Domain
+              StackOrbit
             </h1>
             <p className="text-[10px] text-slate-400">Multi-Host & Multi-Projeto</p>
           </div>

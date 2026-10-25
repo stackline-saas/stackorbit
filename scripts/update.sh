@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # ==============================================================================
-#  🔄 DOCKER DOMAIN MANAGER - SCRIPT DE ATUALIZAÇÃO (CLI)
+#  🔄 STACKORBIT - SCRIPT DE ATUALIZAÇÃO (CLI)
 # ==============================================================================
 #  Atualiza a stack para a versão mais recente sem perda de dados.
 # ==============================================================================
 
 set -e
 
-INSTALL_DIR="${DOCKER_DOMAIN_DIR:-/opt/docker-domain}"
+INSTALL_DIR="${STACKORBIT_DIR:-${DOCKER_DOMAIN_DIR:-/opt/stackorbit}}"
 if [ ! -d "$INSTALL_DIR" ]; then
   INSTALL_DIR="$(pwd)"
 fi
@@ -37,6 +37,6 @@ docker image prune -f > /dev/null 2>&1 || true
 
 echo ""
 echo -e "${GREEN}====================================================================${NC}"
-echo -e "${BOLD}${GREEN}  ✓ Docker Domain Manager atualizado com sucesso!${NC}"
+echo -e "${BOLD}${GREEN}  ✓ StackOrbit atualizado com sucesso!${NC}"
 echo -e "${GREEN}====================================================================${NC}"
 echo ""

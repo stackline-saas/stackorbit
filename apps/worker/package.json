@@ -1,7 +1,7 @@
 {
-  "name": "@docker-domain/worker",
+  "name": "@stackorbit/worker",
   "version": "1.0.0",
-  "description": "Background Worker for Docker Domain Manager (Docker Events, Git Builds, Healthchecks)",
+  "description": "Background Worker for StackOrbit (Docker Events, Git Builds, Healthchecks)",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -10,8 +10,8 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@docker-domain/database": "workspace:*",
-    "@docker-domain/shared": "workspace:*",
+    "@stackorbit/database": "workspace:*",
+    "@stackorbit/shared": "workspace:*",
     "bullmq": "^5.10.0",
     "dockerode": "^4.0.2",
     "dotenv": "^16.4.5",

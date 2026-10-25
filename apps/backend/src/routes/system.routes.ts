@@ -29,10 +29,10 @@ router.get('/version', requireAuth, async (_req, res) => {
   if (!cachedRelease || now - cachedRelease.checkedAt > CACHE_TTL_MS) {
     try {
       const ghRes = await fetch(
-        'https://api.github.com/repos/vcmuniz/docker-domain/releases/latest',
+        'https://api.github.com/repos/stackline-saas/stackorbit/releases/latest',
         {
           headers: {
-            'User-Agent': 'Docker-Domain-Manager',
+            'User-Agent': 'StackOrbit',
             Accept: 'application/vnd.github.v3+json',
           },
           signal: AbortSignal.timeout(5000),
@@ -80,7 +80,7 @@ router.post('/update', requireAuth, async (req: AuthenticatedRequest, res) => {
       userName: req.user?.name || 'Administrador',
       action: 'SYSTEM_UPDATE',
       entityType: 'SYSTEM',
-      entityId: 'docker-domain-manager',
+      entityId: 'stackorbit',
       details: 'Atualização do sistema iniciada pela interface web.',
       ipAddress: req.ip,
     });

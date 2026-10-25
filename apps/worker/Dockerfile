@@ -16,10 +16,10 @@ COPY apps/worker ./apps/worker
 RUN corepack enable && corepack prepare pnpm@9.12.3 --activate
 RUN pnpm install --frozen-lockfile=false
 
-RUN pnpm --filter @docker-domain/shared build
-RUN pnpm --filter @docker-domain/database prisma:generate
-RUN pnpm --filter @docker-domain/database build
-RUN pnpm --filter @docker-domain/worker build
+RUN pnpm --filter @stackorbit/shared build
+RUN pnpm --filter @stackorbit/database prisma:generate
+RUN pnpm --filter @stackorbit/database build
+RUN pnpm --filter @stackorbit/worker build
 
 # ==============================================================================
 # Runner Image

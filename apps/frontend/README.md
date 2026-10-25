@@ -1,4 +1,4 @@
-# Docker Domain Manager (Traefik + Cloudflare Full Strict)
+# StackOrbit Frontend (Traefik + Cloudflare Full Strict)
 
 Painel administrativo completo para cadastrar containers Docker e associar domínios a eles, encaminhando o tráfego HTTP/HTTPS automaticamente por meio do proxy reverso **Traefik**, com terminação e proteção SSL gerenciadas pelo **Cloudflare (Origin CA)**.
 
@@ -89,7 +89,7 @@ Painel administrativo completo para cadastrar containers Docker e associar domí
 
 1. Clone o repositório e acesse a pasta:
    ```bash
-   cd docker-domain-manager
+   cd stackorbit
    ```
 
 2. Crie os arquivos de certificado de origem (ou use os modelos gerados):

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ==============================================================================
-#  🚀 DOCKER DOMAIN MANAGER - SCRIPT OFICIAL DE INSTALAÇÃO (LINUX / VPS)
+#  🚀 STACKORBIT - SCRIPT OFICIAL DE INSTALAÇÃO (LINUX / VPS)
 # ==============================================================================
 #  Execução em comando único:
-#  curl -fsSL https://raw.githubusercontent.com/vcmuniz/docker-domain/master/scripts/install.sh | bash
+#  curl -fsSL https://raw.githubusercontent.com/stackline-saas/stackorbit/master/scripts/install.sh | bash
 # ==============================================================================
 
 set -e
@@ -17,19 +17,19 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m' # No Color
 
-INSTALL_DIR="/opt/docker-domain"
-REPO_RAW="https://raw.githubusercontent.com/vcmuniz/docker-domain/master"
+INSTALL_DIR="/opt/stackorbit"
+REPO_RAW="https://raw.githubusercontent.com/stackline-saas/stackorbit/master"
 DEFAULT_PORT="8088"
 APP_VERSION="v0.1.0"
 
 echo -e "${CYAN}"
-echo "  ██████╗  ██████╗  ██████╗██╗  ██╗███████╗██████╗ "
-echo "  ██╔══██╗██╔═══██╗██╔════╝██║ ██╔╝██╔════╝██╔══██╗"
-echo "  ██║  ██║██║   ██║██║     █████╔╝ █████╗  ██████╔╝"
-echo "  ██║  ██║██║   ██║██║     ██╔═██╗ ██╔══╝  ██╔══██╗"
-echo "  ██████╔╝╚██████╔╝╚██████╗██║  ██╗███████╗██║  ██║"
-echo "  ╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝"
-echo "        DOMAIN MANAGER - INSTALADOR OFICIAL        "
+echo "  ███████╗████████╗ █████╗  ██████╗██╗  ██╗ ██████╗ ██████╗ ██████╗ ██╗████████╗"
+echo "  ██╔════╝╚══██╔══╝██╔══██╗██╔════╝██║ ██╔╝██╔═══██╗██╔══██╗██╔══██╗██║╚══██╔══╝"
+echo "  ███████╗   ██║   ███████║██║     █████╔╝ ██║   ██║██████╔╝██████╔╝██║   ██║   "
+echo "  ╚════██║   ██║   ██╔══██║██║     ██╔═██╗ ██║   ██║██╔══██╗██╔══██╗██║   ██║   "
+echo "  ███████║   ██║   ██║  ██║╚██████╗██║  ██╗╚██████╔╝██║  ██║██████╔╝██║   ██║   "
+echo "  ╚══════╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═════╝ ╚═╝   ╚═╝   "
+echo "                       STACKORBIT - INSTALADOR OFICIAL                          "
 echo -e "${NC}"
 
 echo -e "${BLUE}==>${NC} Iniciando verificação e preparação do sistema..."
@@ -88,7 +88,7 @@ if [ ! -f "${INSTALL_DIR}/.env" ]; then
   RANDOM_JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 64)
 
   cat <<EOF > "${INSTALL_DIR}/.env"
-# Configurações do Docker Domain Manager
+# Configurações do StackOrbit
 APP_VERSION=${APP_VERSION}
 PORT=${DEFAULT_PORT}
 POSTGRES_USER=postgres
@@ -121,7 +121,7 @@ fi
 echo -e "${BLUE}==>${NC} Puxando imagens Docker do GitHub Container Registry (GHCR)..."
 docker compose pull
 
-echo -e "${BLUE}==>${NC} Iniciando stack do Docker Domain Manager..."
+echo -e "${BLUE}==>${NC} Iniciando stack do StackOrbit..."
 docker compose up -d
 
 # 10. Descobrir IP do Servidor
@@ -129,7 +129,7 @@ SERVER_IP=$(curl -s -4 https://ifconfig.me 2>/dev/null || curl -s -4 https://api
 
 echo ""
 echo -e "${GREEN}====================================================================${NC}"
-echo -e "${BOLD}${GREEN}  🎉 Docker Domain Manager ${APP_VERSION} (Beta) Instalado com Sucesso!${NC}"
+echo -e "${BOLD}${GREEN}  🎉 StackOrbit ${APP_VERSION} (Beta) Instalado com Sucesso!${NC}"
 echo -e "${GREEN}====================================================================${NC}"
 echo ""
 echo -e "  ${BOLD}🌐 Painel de Controle:${NC}   ${CYAN}http://${SERVER_IP}:${DEFAULT_PORT}${NC}"

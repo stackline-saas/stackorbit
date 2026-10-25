@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
-import { prisma } from '@docker-domain/database';
+import { prisma } from '@stackorbit/database';
 
 export interface TargetServer {
   container: string;

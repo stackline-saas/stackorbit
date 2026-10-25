@@ -5,7 +5,7 @@
 
 import crypto from 'node:crypto';
 
-function hashPassword(password: string, salt = 'docker-domain-manager-salt-2026'): string {
+function hashPassword(password: string, salt = 'stackorbit-salt-2026'): string {
   return crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
 }
 

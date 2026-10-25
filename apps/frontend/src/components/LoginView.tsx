@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShieldCheck, Lock, Mail, ArrowRight, Server, KeyRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.tsx';
+import { StackOrbitLogo } from './common/StackOrbitLogo';
 
 export const LoginView: React.FC = () => {
   const { login } = useAuth();
@@ -36,11 +37,11 @@ export const LoginView: React.FC = () => {
         {/* Top brand banner */}
         <div className="bg-slate-950 p-6 text-white border-b border-slate-800">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-lg text-white">
-              DM
-            </div>
+            <StackOrbitLogo size={40} />
             <div>
-              <h1 className="text-base font-bold tracking-tight">StackOrbit</h1>
+              <h1 className="text-lg font-bold tracking-tight">
+                Stack<span className="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-indigo-400">Orbit</span>
+              </h1>
               <p className="text-xs text-slate-400">Roteamento Traefik + Cloudflare Origin</p>
             </div>
           </div>

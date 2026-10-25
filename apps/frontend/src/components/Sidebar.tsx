@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.tsx';
 import type { ActiveTab, Project, DockerHost } from '../types/index.ts';
+import { StackOrbitLogo } from './common/StackOrbitLogo';
 export type { ActiveTab };
 
 interface SidebarProps {
@@ -189,12 +190,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Brand Header */}
       <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
         <Link to="/dashboard" className="flex items-center gap-2 group">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-sm tracking-tighter group-hover:bg-blue-500 transition-colors shadow-xs">
-            DM
-          </div>
+          <StackOrbitLogo size={32} />
           <div>
-            <h1 className="text-sm font-bold text-white tracking-tight whitespace-nowrap group-hover:text-blue-400 transition-colors">
-              StackOrbit
+            <h1 className="text-sm font-bold text-white tracking-tight whitespace-nowrap group-hover:text-sky-400 transition-colors">
+              Stack<span className="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-indigo-400">Orbit</span>
             </h1>
             <p className="text-[10px] text-slate-400">Multi-Host & Multi-Projeto</p>
           </div>

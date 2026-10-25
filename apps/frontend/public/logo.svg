@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 240" fill="none">
+  <defs>
+    <linearGradient id="orbit-grad-logo" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="50%" stop-color="#6366F1" />
+      <stop offset="100%" stop-color="#A855F7" />
+    </linearGradient>
+    <linearGradient id="stack-top-logo" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#0284C7" />
+    </linearGradient>
+    <linearGradient id="stack-mid-logo" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366F1" />
+      <stop offset="100%" stop-color="#4F46E5" />
+    </linearGradient>
+    <linearGradient id="stack-bot-logo" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8B5CF6" />
+      <stop offset="100%" stop-color="#6D28D9" />
+    </linearGradient>
+    <linearGradient id="text-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#E2E8F0" />
+    </linearGradient>
+    <filter id="glow-logo" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Icon Mark (Centered around X=120, Y=120) -->
+  <g transform="translate(0, 0)">
+    <!-- Back Orbit Ring -->
+    <ellipse cx="120" cy="120" rx="95" ry="34" transform="rotate(-30 120 120)" stroke="url(#orbit-grad-logo)" stroke-width="7" stroke-dasharray="8 6" stroke-opacity="0.45" fill="none" />
+
+    <!-- Isometric Stack -->
+    <!-- Bottom Layer -->
+    <path d="M 120 148 L 172 120 L 120 92 L 68 120 Z" fill="url(#stack-bot-logo)" opacity="0.9" />
+    <path d="M 68 120 L 120 148 L 120 162 L 68 134 Z" fill="#581C87" />
+    <path d="M 120 148 L 172 120 L 172 134 L 120 162 Z" fill="#6B21A8" />
+
+    <!-- Mid Layer -->
+    <path d="M 120 114 L 172 86 L 120 58 L 68 86 Z" fill="url(#stack-mid-logo)" opacity="0.95" />
+    <path d="M 68 86 L 120 114 L 120 126 L 68 98 Z" fill="#3730A3" />
+    <path d="M 120 114 L 172 86 L 172 98 L 120 126 Z" fill="#4338CA" />
+
+    <!-- Top Layer -->
+    <path d="M 120 80 L 172 52 L 120 24 L 68 52 Z" fill="url(#stack-top-logo)" />
+    <path d="M 68 52 L 120 80 L 120 92 L 68 64 Z" fill="#0369A1" />
+    <path d="M 120 80 L 172 52 L 172 64 L 120 92 Z" fill="#0284C7" />
+
+    <!-- Front Orbit Arc -->
+    <path d="M 40 162 C 70 200 170 195 200 132" stroke="url(#orbit-grad-logo)" stroke-width="8" stroke-linecap="round" fill="none" filter="url(#glow-logo)" />
+    <circle cx="200" cy="130" r="11" fill="#38BDF8" filter="url(#glow-logo)" />
+    <circle cx="200" cy="130" r="6" fill="#FFFFFF" />
+  </g>
+
+  <!-- Typography -->
+  <g transform="translate(245, 135)">
+    <text font-family="'Plus Jakarta Sans', system-ui, -apple-system, sans-serif" font-weight="800" font-size="78" fill="url(#text-grad)" letter-spacing="-1.5">Stack<tspan fill="url(#orbit-grad-logo)">Orbit</tspan></text>
+    <text y="42" font-family="'JetBrains Mono', monospace" font-weight="600" font-size="18" fill="#94A3B8" letter-spacing="4">MULTI-HOST CONTAINER PAAS</text>
+  </g>
+</svg>

@@ -32,8 +32,11 @@ jobs:
         id: meta
         run: |
           TAG_NAME="${GITHUB_REF#refs/tags/}"
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           echo "tag=${TAG_NAME}" >> $GITHUB_OUTPUT
+          echo "repo=${REPO_LOWER}" >> $GITHUB_OUTPUT
           echo "Versão detectada: ${TAG_NAME}"
+          echo "Repositório formatado: ${REPO_LOWER}"
 
       # ------------------------------------------------------------------------
       # Build & Push: API + Frontend Embutido
@@ -45,8 +48,8 @@ jobs:
           file: ./apps/backend/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}-api:latest
-            ghcr.io/${{ github.repository }}-api:${{ steps.meta.outputs.tag }}
+            ghcr.io/${{ steps.meta.outputs.repo }}-api:latest
+            ghcr.io/${{ steps.meta.outputs.repo }}-api:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -60,8 +63,8 @@ jobs:
           file: ./apps/worker/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}-worker:latest
-            ghcr.io/${{ github.repository }}-worker:${{ steps.meta.outputs.tag }}
+            ghcr.io/${{ steps.meta.outputs.repo }}-worker:latest
+            ghcr.io/${{ steps.meta.outputs.repo }}-worker:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

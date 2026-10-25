@@ -48,3 +48,6 @@ temp/
 tmp/
 .temp/
 .data/
+cert/
+*.key
+*.pem

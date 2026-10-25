@@ -37,19 +37,11 @@ ENV PORT=3000
 
 RUN corepack enable && corepack prepare pnpm@9.12.3 --activate
 
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml* .npmrc ./
-COPY packages/shared/package.json ./packages/shared/
-COPY packages/database/package.json ./packages/database/
-COPY apps/backend/package.json ./apps/backend/
+# Copy full monorepo with installed node_modules, generated prisma client and dist builds
+COPY --from=builder /app /app
 
-# Copy built node_modules and artifacts from builder
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
-COPY --from=builder /app/packages/database/dist ./packages/database/dist
-COPY --from=builder /app/packages/database/prisma ./packages/database/prisma
-COPY --from=builder /app/apps/backend/dist ./apps/backend/dist
-COPY --from=builder /app/apps/frontend/dist ./public
-
+# Ensure frontend SPA assets are in /app/public
+RUN mkdir -p /app/public && cp -r /app/apps/frontend/dist/* /app/public/
 RUN mkdir -p /app/traefik/dynamic /app/traefik/certs
 
 EXPOSE 3000

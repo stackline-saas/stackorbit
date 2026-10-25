@@ -34,17 +34,8 @@ ENV NODE_ENV=production
 
 RUN corepack enable && corepack prepare pnpm@9.12.3 --activate
 
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml* .npmrc ./
-COPY packages/shared/package.json ./packages/shared/
-COPY packages/database/package.json ./packages/database/
-COPY apps/worker/package.json ./apps/worker/
-
-# Copy built node_modules and artifacts from builder
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
-COPY --from=builder /app/packages/database/dist ./packages/database/dist
-COPY --from=builder /app/packages/database/prisma ./packages/database/prisma
-COPY --from=builder /app/apps/worker/dist ./apps/worker/dist
+# Copy full monorepo with installed node_modules, generated prisma client and dist builds
+COPY --from=builder /app /app
 
 RUN mkdir -p /app/temp/builds /app/traefik/dynamic /app/traefik/certs
 

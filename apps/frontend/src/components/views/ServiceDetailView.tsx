@@ -340,16 +340,19 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
   const handleContainerPower = async (cName: string, action: 'start' | 'stop' | 'restart') => {
     setContainerActionLoading((prev) => ({ ...prev, [cName]: true }));
     try {
-      let endpoint = '';
-      if (action === 'restart') endpoint = `/api/containers/${cName}/restart`;
-      else if (action === 'start') endpoint = `/api/services/${service.id}/start`;
-      else endpoint = `/api/services/${service.id}/stop`;
-
+      const endpoint = `/api/containers/${encodeURIComponent(cName)}/${action}`;
       const res = await authFetch(endpoint, { method: 'POST' });
       if (res.ok) {
-        showNotification('success', 'Sucesso', `Container ${cName}: ação executada.`);
+        showNotification(
+          'success',
+          'Sucesso',
+          `Container "${cName}" ${action === 'start' ? 'iniciado' : action === 'stop' ? 'parado' : 'reiniciado'}.`
+        );
         await fetchContainers();
         if (onRefreshData) onRefreshData();
+      } else {
+        const data = await res.json();
+        showNotification('error', 'Erro', data.error || `Falha ao executar ${action}`);
       }
     } catch (err: any) {
       showNotification('error', 'Erro', err.message);
@@ -1819,6 +1822,37 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                 <RotateCw className="w-3 h-3" />
                                 <span>Reiniciar Todas</span>
                               </button>
+
+                              {/* Batch start / stop for all replicas in this component */}
+                              {group.containers.some((c) => c.status === 'running' || c.state === 'running') ? (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    for (const c of group.containers) {
+                                      await handleContainerPower(c.name, 'stop');
+                                    }
+                                  }}
+                                  className="px-2.5 py-1 text-xs font-semibold text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg flex items-center gap-1 transition-colors shadow-2xs"
+                                  title="Parar todas as instâncias deste componente"
+                                >
+                                  <Square className="w-3 h-3 fill-current" />
+                                  <span>Parar Todas</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    for (const c of group.containers) {
+                                      await handleContainerPower(c.name, 'start');
+                                    }
+                                  }}
+                                  className="px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg flex items-center gap-1 transition-colors shadow-2xs"
+                                  title="Iniciar todas as instâncias deste componente"
+                                >
+                                  <Play className="w-3 h-3 fill-current" />
+                                  <span>Iniciar Todas</span>
+                                </button>
+                              )}
                             </div>
                           </div>
 
@@ -2009,6 +2043,28 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                             <Globe className="w-3.5 h-3.5 text-blue-600" />
                                           </button>
 
+                                          {isRunning ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleContainerPower(c.name, 'stop')}
+                                              disabled={containerActionLoading[c.name]}
+                                              className="p-1.5 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                                              title={`Parar réplica ${c.name}`}
+                                            >
+                                              <Square className="w-3.5 h-3.5 fill-current text-rose-600" />
+                                            </button>
+                                          ) : (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleContainerPower(c.name, 'start')}
+                                              disabled={containerActionLoading[c.name]}
+                                              className="p-1.5 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
+                                              title={`Iniciar réplica ${c.name}`}
+                                            >
+                                              <Play className="w-3.5 h-3.5 fill-current text-emerald-600" />
+                                            </button>
+                                          )}
+
                                           <button
                                             type="button"
                                             onClick={() => handleContainerPower(c.name, 'restart')}
@@ -2087,7 +2143,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                       ) : (
                         containersList.map((c) => {
                           const isPrimary = c.name === containerName || c.isPrimary;
-                          const isRunning = c.status === 'running';
+                          const isRunning = c.status === 'running' || c.state === 'running';
                           const isOnProxyNet = c.isOnProxyNet || (c.networks && c.networks.includes('proxy-net'));
 
                           return (
@@ -2250,6 +2306,28 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                   >
                                     <Globe className="w-3.5 h-3.5 text-blue-600" />
                                   </button>
+
+                                  {isRunning ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleContainerPower(c.name, 'stop')}
+                                      disabled={containerActionLoading[c.name]}
+                                      className="p-1.5 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                                      title={`Parar réplica ${c.name}`}
+                                    >
+                                      <Square className="w-3.5 h-3.5 fill-current text-rose-600" />
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleContainerPower(c.name, 'start')}
+                                      disabled={containerActionLoading[c.name]}
+                                      className="p-1.5 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
+                                      title={`Iniciar réplica ${c.name}`}
+                                    >
+                                      <Play className="w-3.5 h-3.5 fill-current text-emerald-600" />
+                                    </button>
+                                  )}
 
                                   <button
                                     type="button"

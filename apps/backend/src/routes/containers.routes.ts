@@ -37,7 +37,51 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
-// 2. Restart container
+// 2. Start container
+router.post('/:nameOrId/start', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const { nameOrId } = req.params;
+  try {
+    await dockerService.startContainer(nameOrId);
+
+    await logAudit({
+      userId: req.user?.id,
+      userName: req.user?.name || 'Administrador',
+      action: 'CONTAINER_START',
+      entityType: 'CONTAINER',
+      entityId: nameOrId,
+      details: `Container "${nameOrId}" iniciado pelo painel.`,
+      ipAddress: req.ip,
+    });
+
+    return res.json({ success: true, message: `Container "${nameOrId}" iniciado.` });
+  } catch (err: any) {
+    return res.status(500).json({ error: `Falha ao iniciar container: ${err.message}` });
+  }
+});
+
+// 2b. Stop container
+router.post('/:nameOrId/stop', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const { nameOrId } = req.params;
+  try {
+    await dockerService.stopContainer(nameOrId);
+
+    await logAudit({
+      userId: req.user?.id,
+      userName: req.user?.name || 'Administrador',
+      action: 'CONTAINER_STOP',
+      entityType: 'CONTAINER',
+      entityId: nameOrId,
+      details: `Container "${nameOrId}" parado pelo painel.`,
+      ipAddress: req.ip,
+    });
+
+    return res.json({ success: true, message: `Container "${nameOrId}" parado.` });
+  } catch (err: any) {
+    return res.status(500).json({ error: `Falha ao parar container: ${err.message}` });
+  }
+});
+
+// 2c. Restart container
 router.post('/:nameOrId/restart', requireAuth, async (req: AuthenticatedRequest, res) => {
   const { nameOrId } = req.params;
   try {

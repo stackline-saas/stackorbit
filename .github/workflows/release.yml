@@ -1,0 +1,101 @@
+name: Release - Build & Publicação GHCR
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-and-publish:
+    name: Build & Push Imagens Docker Multi-arch
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Clonar Repositório
+        uses: actions/checkout@v4
+
+      - name: 🐳 Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔑 Login no GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Extrair Versão da Tag
+        id: meta
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          echo "tag=${TAG_NAME}" >> $GITHUB_OUTPUT
+          echo "Versão detectada: ${TAG_NAME}"
+
+      # ------------------------------------------------------------------------
+      # Build & Push: API + Frontend Embutido
+      # ------------------------------------------------------------------------
+      - name: 🏗️ Build & Push API Image (ghcr.io)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./apps/backend/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}-api:latest
+            ghcr.io/${{ github.repository }}-api:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ------------------------------------------------------------------------
+      # Build & Push: Background Worker
+      # ------------------------------------------------------------------------
+      - name: 🏗️ Build & Push Worker Image (ghcr.io)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./apps/worker/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}-worker:latest
+            ghcr.io/${{ github.repository }}-worker:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ------------------------------------------------------------------------
+      # GitHub Release Oficial
+      # ------------------------------------------------------------------------
+      - name: 🚀 Criar GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Docker Domain Manager ${{ steps.meta.outputs.tag }}
+          tag_name: ${{ steps.meta.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            docker-compose.prod.yml
+            scripts/install.sh
+            scripts/install.ps1
+            scripts/update.sh
+          body: |
+            ## 🚀 Docker Domain Manager ${{ steps.meta.outputs.tag }}
+            
+            ### 📦 Instalação em 1 comando (Linux VPS):
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ steps.meta.outputs.tag }}/scripts/install.sh | bash
+            ```
+            
+            ### 💻 Instalação em 1 comando (Windows PowerShell):
+            ```powershell
+            irm https://raw.githubusercontent.com/${{ github.repository }}/${{ steps.meta.outputs.tag }}/scripts/install.ps1 | iex
+            ```
+            
+            ### 🔄 Atualização de versão existente:
+            ```bash
+            cd /opt/docker-domain && ./update.sh
+            ```
+            *(Ou clique diretamente no botão **"Atualizar Sistema"** na aba de Configurações do painel web)*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

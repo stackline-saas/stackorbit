@@ -23,6 +23,7 @@ import testSuiteRoutes from './routes/test-suite.routes.js';
 import webhooksRoutes from './routes/webhooks.routes.js';
 import projectsRoutes from './routes/projects.routes.js';
 import hostsRoutes from './routes/hosts.routes.js';
+import systemRoutes from './routes/system.routes.js';
 import { integrationsRouter } from './routes/integrations.routes.js';
 import { requireAuth, type AuthenticatedRequest } from './middleware/auth.middleware.js';
 
@@ -72,6 +73,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/test-suite', testSuiteRoutes);
 app.use('/api/webhooks', webhooksRoutes);
 app.use('/api/integrations', requireAuth, integrationsRouter);
+app.use('/api/system', systemRoutes);
 
 // Compatibility route for /api/default-service
 app.get('/api/default-service', requireAuth, async (req, res) => {

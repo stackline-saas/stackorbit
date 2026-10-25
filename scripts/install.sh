@@ -3,7 +3,7 @@
 #  🚀 DOCKER DOMAIN MANAGER - SCRIPT OFICIAL DE INSTALAÇÃO (LINUX / VPS)
 # ==============================================================================
 #  Execução em comando único:
-#  curl -fsSL https://raw.githubusercontent.com/vcmuniz/docker-domain/main/scripts/install.sh | bash
+#  curl -fsSL https://raw.githubusercontent.com/vcmuniz/docker-domain/master/scripts/install.sh | bash
 # ==============================================================================
 
 set -e
@@ -18,7 +18,7 @@ BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 INSTALL_DIR="/opt/docker-domain"
-REPO_RAW="https://raw.githubusercontent.com/vcmuniz/docker-domain/main"
+REPO_RAW="https://raw.githubusercontent.com/vcmuniz/docker-domain/master"
 DEFAULT_PORT="8088"
 APP_VERSION="v0.1.0"
 

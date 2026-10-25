@@ -2,13 +2,13 @@
 #  🚀 DOCKER DOMAIN MANAGER - INSTALADOR WINDOWS / POWERSHELL
 # ==============================================================================
 #  Execução em comando único no PowerShell:
-#  irm https://raw.githubusercontent.com/vcmuniz/docker-domain/main/scripts/install.ps1 | iex
+#  irm https://raw.githubusercontent.com/vcmuniz/docker-domain/master/scripts/install.ps1 | iex
 # ==============================================================================
 
 $ErrorActionPreference = 'Stop'
 
 $InstallDir = "C:\docker-domain"
-$RepoRaw = "https://raw.githubusercontent.com/vcmuniz/docker-domain/main"
+$RepoRaw = "https://raw.githubusercontent.com/vcmuniz/docker-domain/master"
 $DefaultPort = 8088
 $AppVersion = "v0.1.0"
 

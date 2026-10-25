@@ -29,7 +29,7 @@ jobs:
         run: pnpm install --frozen-lockfile=false
 
       - name: 🗄️ Gerar Prisma Client
-        run: pnpm db:generate
+        run: pnpm --filter @stackorbit/database prisma:generate
 
       - name: 🏗️ Executar Monorepo Build
         run: pnpm build

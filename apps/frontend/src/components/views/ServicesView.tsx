@@ -18,6 +18,7 @@ import {
   Boxes,
   RefreshCw,
   Server,
+  Settings2,
 } from 'lucide-react';
 import type { Service } from '../../types/index.ts';
 
@@ -407,27 +408,11 @@ export const ServicesView: React.FC<ServicesViewProps> = ({
                           </button>
 
                           <button
-                            onClick={() => (onOpenTerminal ? onOpenTerminal(svc) : onOpenEdit(svc))}
-                            className="p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded"
-                            title="Abrir Terminal & SSH do Container"
-                          >
-                            <Terminal className="w-3.5 h-3.5" />
-                          </button>
-
-                          <button
-                            onClick={() => onViewLogs(svc)}
-                            className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded"
-                            title="Visualizar Logs do Container"
-                          >
-                            <FileText className="w-3.5 h-3.5" />
-                          </button>
-
-                          <button
                             onClick={() => onOpenEdit(svc)}
-                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                            title="Editar Serviço"
+                            className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
+                            title="Gerenciar Serviço"
                           >
-                            <Edit2 className="w-3.5 h-3.5" />
+                            <Settings2 className="w-4 h-4" />
                           </button>
 
                           <button

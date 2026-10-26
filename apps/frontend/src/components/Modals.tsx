@@ -25,8 +25,6 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
   const [gitRepoUrl, setGitRepoUrl] = useState('');
   const [gitBranch, setGitBranch] = useState('main');
   const [dockerfilePath, setDockerfilePath] = useState('Dockerfile');
-  const [gitToken, setGitToken] = useState('');
-  const [showToken, setShowToken] = useState(false);
   const [buildContext, setBuildContext] = useState('.');
   const [triggerInitialBuild, setTriggerInitialBuild] = useState(true);
   const [envVars, setEnvVars] = useState('');
@@ -45,7 +43,6 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
       setGitRepoUrl(service.gitRepoUrl || '');
       setGitBranch(service.gitBranch || 'main');
       setDockerfilePath(service.dockerfilePath || 'Dockerfile');
-      setGitToken(service.meta?.gitToken || '');
       setBuildContext(service.meta?.buildContext || '.');
       setTriggerInitialBuild(false);
       setEnvVars(service.envVars || '');
@@ -60,7 +57,6 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
       setGitRepoUrl('https://github.com/usuario/meu-projeto.git');
       setGitBranch('main');
       setDockerfilePath('Dockerfile');
-      setGitToken('');
       setBuildContext('.');
       setTriggerInitialBuild(true);
       setEnvVars('');
@@ -103,7 +99,6 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
       gitRepoUrl: sourceType === 'GITHUB' ? gitRepoUrl.trim() : undefined,
       gitBranch: sourceType === 'GITHUB' ? (gitBranch.trim() || 'main') : undefined,
       dockerfilePath: sourceType === 'GITHUB' ? (dockerfilePath.trim() || 'Dockerfile') : undefined,
-      gitToken: sourceType === 'GITHUB' && gitToken.trim() ? gitToken.trim() : undefined,
       buildContext: sourceType === 'GITHUB' ? (buildContext.trim() || '.') : undefined,
       triggerInitialBuild: sourceType === 'GITHUB' ? triggerInitialBuild : undefined,
       envVars: sourceType === 'GITHUB' ? envVars : undefined,
@@ -283,34 +278,9 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
                 <span className="text-[10px] text-slate-400">Diretório raiz a ser empacotado para o Docker (padrão: .)</span>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
-                  <span className="flex items-center gap-1">
-                    <Key className="w-3 h-3 text-amber-500" />
-                    <span>Token GitHub PAT (Repositórios Privados)</span>
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-normal">Opcional</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type={showToken ? 'text' : 'password'}
-                    placeholder="ghp_... (apenas se o repositório for privado)"
-                    value={gitToken}
-                    onChange={(e) => setGitToken(e.target.value)}
-                    className="w-full pl-3 pr-8 py-2 text-xs font-mono rounded-md border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowToken(!showToken)}
-                    className="absolute right-2 top-2 text-slate-400 hover:text-slate-600"
-                    title={showToken ? 'Ocultar Token' : 'Mostrar Token'}
-                  >
-                    {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                <span className="text-[10px] text-slate-400 block mt-0.5">
-                  Armazenado com segurança e nunca exposto nos logs.
-                </span>
+              <div className="flex items-center gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600">
+                <Key className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>Autenticação Git vinculada automaticamente via <strong>Integrações Git</strong>.</span>
               </div>
 
               <div>

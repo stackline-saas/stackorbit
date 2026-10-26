@@ -2,6 +2,7 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { prisma, logAudit } from '../db.js';
 import { queueService } from '../services/queue.service.js';
+import { resolveGitToken } from '../services/git-token.service.js';
 
 const router = Router();
 
@@ -41,6 +42,12 @@ router.post('/github/:id', async (req, res) => {
       try { meta = JSON.parse(match[1]); } catch {}
     }
 
+    const finalToken = await resolveGitToken(prisma, {
+      gitRepoUrl: service.gitRepoUrl,
+      gitProviderId: meta.gitProviderId,
+      explicitToken: meta.gitToken,
+    });
+
     const job = await queueService.addBuildJob({
       serviceId: service.id,
       gitRepoUrl: service.gitRepoUrl,
@@ -48,7 +55,7 @@ router.post('/github/:id', async (req, res) => {
       dockerfilePath: service.dockerfilePath || 'Dockerfile',
       envVars: service.envVars || undefined,
       triggeredBy: 'GitHub Webhook (Push)',
-      gitToken: meta.gitToken,
+      gitToken: finalToken,
       buildContext: meta.buildContext,
       buildArgs: meta.buildArgs,
     });

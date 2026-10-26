@@ -142,6 +142,7 @@ export interface ServiceTemplate {
   suggestedDomainPrefix?: string;
   fields: TemplateField[];
   generateEnv: (values: Record<string, string>) => string;
+  generateCommand?: (values: Record<string, string>) => string;
   generateConnectionString?: (values: Record<string, string>, containerName: string) => string;
 }
 
@@ -234,6 +235,8 @@ export const SERVICE_TEMPLATES: ServiceTemplate[] = [
     ],
     generateEnv: (values) =>
       values.REDIS_PASSWORD ? `REDIS_PASSWORD=${values.REDIS_PASSWORD}` : '# Sem autenticação configurada',
+    generateCommand: (values) =>
+      values.REDIS_PASSWORD ? `redis-server --requirepass ${values.REDIS_PASSWORD}` : '',
     generateConnectionString: (values, containerName) =>
       values.REDIS_PASSWORD
         ? `redis://:${encodeURIComponent(values.REDIS_PASSWORD)}@${containerName}:6379`

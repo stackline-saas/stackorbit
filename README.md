@@ -11,6 +11,9 @@
 [![Traefik](https://img.shields.io/badge/Traefik-v3.1-24A1C1?style=for-the-badge&logo=traefikproxy&logoColor=white)](https://traefik.io/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/stackline-saas/stackorbit/actions/workflows/ci.yml/badge.svg)](https://github.com/stackline-saas/stackorbit/actions/workflows/ci.yml)
+[![GitHub release](https://img.shields.io/github/v/release/stackline-saas/stackorbit?display_name=tag)](https://github.com/stackline-saas/stackorbit/releases)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/stackline-saas?label=Sponsor)](https://github.com/sponsors/stackline-saas)
 
 <p align="center">
   <a href="#-instalação-rápida-em-1-comando">Instalação Rápida</a> •
@@ -23,6 +26,8 @@
 
 </div>
 
+> English documentation: [docs/README.en.md](docs/README.en.md)
+
 ---
 
 ## 💡 O que é o StackOrbit?
@@ -30,6 +35,24 @@
 O **StackOrbit** é uma plataforma PaaS *self-hosted* projetada para simplificar a gestão de microsserviços, roteamento de múltiplos domínios e alta disponibilidade de containers Docker.
 
 Com ele, você transforma qualquer VPS Linux ou servidor bare-metal em um ambiente de produção robusto, com **Traefik v3.1 integrado**, suporte nativo a **Cloudflare SSL Full (Strict)**, balanceamento de carga entre múltiplos nós remotos via SSH, deploys automatizados via Git Webhooks e uma interface gráfica moderna e fluida.
+
+### Para quem é
+
+O StackOrbit foi feito para desenvolvedores, equipes DevOps, agências e provedores de infraestrutura que precisam publicar aplicações Docker em VPS ou servidores próprios sem montar uma plataforma PaaS do zero.
+
+### Indicadores do projeto
+
+Preencha estes indicadores com dados reais para ajudar usuários e patrocinadores a avaliar o projeto:
+
+| Indicador | Valor |
+| --- | --- |
+| Usuários / instalações conhecidas | A preencher |
+| Downloads / pulls de imagens | A preencher |
+| GitHub stars | [ver no GitHub](https://github.com/stackline-saas/stackorbit) |
+| Forks | [ver no GitHub](https://github.com/stackline-saas/stackorbit/network/members) |
+| Empresas usando | A preencher |
+
+Não estimamos números sem telemetria ou evidência pública. Atualize esta tabela a cada release.
 
 ---
 
@@ -201,3 +224,27 @@ cd /opt/stackorbit
 ## 📄 Licença
 
 Este projeto é distribuído sob a licença [MIT](LICENSE). Você é livre para utilizar, modificar e distribuir comercialmente ou em projetos pessoais.
+
+## 💙 Apoie o desenvolvimento
+
+O StackOrbit é mantido em código aberto. Patrocínios financiam manutenção das releases, correções de segurança, documentação, integrações e suporte à comunidade.
+
+### Como o financiamento será usado
+
+- 40%: manutenção, correções e releases;
+- 25%: segurança, testes e atualizações de dependências;
+- 20%: documentação, exemplos e onboarding;
+- 15%: novas integrações e suporte à comunidade.
+
+Os percentuais são uma meta de transparência e podem ser ajustados conforme as prioridades públicas do roadmap.
+
+### Roadmap público
+
+- [ ] Publicar primeira release estável `v1.0.0`;
+- [ ] Ampliar cobertura de testes de backend e integração;
+- [ ] Melhorar instalação segura e rotação de credenciais;
+- [ ] Adicionar mais provedores de DNS e TLS;
+- [ ] Expandir documentação em inglês e exemplos de produção;
+- [ ] Publicar métricas de adoção e relatórios de desenvolvimento.
+
+Para apoiar, use o botão [GitHub Sponsors](https://github.com/sponsors/stackline-saas) quando disponível ou abra uma discussão para patrocínio empresarial.

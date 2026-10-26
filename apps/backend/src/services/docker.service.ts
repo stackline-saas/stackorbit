@@ -259,12 +259,13 @@ export class DockerService {
     });
   }
 
-  public async ensureNetwork(networkName = config.networkName): Promise<void> {
+  public async ensureNetwork(networkName = config.networkName, hostId?: string | null): Promise<void> {
     try {
-      const networks = await this.docker.listNetworks();
+      const docker = await this.getClient(hostId);
+      const networks = await docker.listNetworks();
       const exists = networks.some((n) => n.Name === networkName);
       if (!exists) {
-        await this.docker.createNetwork({
+        await docker.createNetwork({
           Name: networkName,
           Driver: 'bridge',
         });
@@ -277,11 +278,13 @@ export class DockerService {
   public async attachToNetwork(
     containerNameOrId: string,
     networkName = config.networkName,
-    aliases?: string[]
+    aliases?: string[],
+    hostId?: string | null
   ): Promise<void> {
     try {
-      await this.ensureNetwork(networkName);
-      const network = this.docker.getNetwork(networkName);
+      await this.ensureNetwork(networkName, hostId);
+      const docker = await this.getClient(hostId);
+      const network = docker.getNetwork(networkName);
       const connectOpts: any = { Container: containerNameOrId };
       if (aliases && aliases.length > 0) {
         connectOpts.EndpointConfig = { Aliases: aliases };
@@ -295,9 +298,10 @@ export class DockerService {
     }
   }
 
-  public async detachFromNetwork(containerNameOrId: string, networkName = config.networkName): Promise<void> {
+  public async detachFromNetwork(containerNameOrId: string, networkName = config.networkName, hostId?: string | null): Promise<void> {
     try {
-      const network = this.docker.getNetwork(networkName);
+      const docker = await this.getClient(hostId);
+      const network = docker.getNetwork(networkName);
       await network.disconnect({ Container: containerNameOrId, Force: true });
     } catch (err: any) {
       console.warn(`Aviso ao desconectar container "${containerNameOrId}" da rede "${networkName}":`, err.message);
@@ -312,22 +316,24 @@ export class DockerService {
     memoryLimitMb?: number;
     cpuLimit?: number;
     command?: string;
+    hostId?: string | null;
   }): Promise<string> {
-    await this.ensureNetwork();
+    const docker = await this.getClient(options.hostId);
+    await this.ensureNetwork(config.networkName, options.hostId);
 
     // Remove old container if present
-    await this.removeContainer(options.containerName, true);
+    await this.removeContainer(options.containerName, true, options.hostId);
 
     // Pull image if not local
     try {
-      const images = await this.docker.listImages();
+      const images = await docker.listImages();
       const hasImage = images.some((img) =>
         img.RepoTags?.some((tag) => tag === options.image || tag.startsWith(`${options.image}:`))
       );
       if (!hasImage) {
-        const stream = await this.docker.pull(options.image);
+        const stream = await docker.pull(options.image);
         await new Promise((resolve, reject) => {
-          this.docker.modem.followProgress(stream, (err, res) => {
+          docker.modem.followProgress(stream, (err, res) => {
             if (err) reject(err);
             else resolve(res);
           });
@@ -365,7 +371,7 @@ export class DockerService {
       hostConfig.NanoCpus = Math.floor(options.cpuLimit * 1e9);
     }
 
-    const container = await this.docker.createContainer({
+    const container = await docker.createContainer({
       name: options.containerName,
       Image: options.image,
       Env: envArray,
@@ -433,8 +439,9 @@ export class DockerService {
       throw new Error(`Nenhum container base encontrado para "${serviceName}".`);
     }
 
+    const docker = await this.getClient();
     const baseName = baseContainerName || matched[0]?.name;
-    const baseDocker = this.docker.getContainer(baseName);
+    const baseDocker = docker.getContainer(baseName);
     const baseInspect = await baseDocker.inspect();
 
     const added: string[] = [];
@@ -489,7 +496,7 @@ export class DockerService {
           endpointsConfig['proxy-net'] = {};
         }
 
-        const newContainer = await this.docker.createContainer({
+        const newContainer = await docker.createContainer({
           name: newName,
           Image: baseInspect.Config.Image,
           Env: baseInspect.Config.Env,
@@ -514,7 +521,7 @@ export class DockerService {
 
       for (const item of surplus) {
         try {
-          const c = this.docker.getContainer(item.id || item.name);
+          const c = docker.getContainer(item.id || item.name);
           await c.stop({ t: 5 }).catch(() => {});
           await c.remove({ force: true });
           removed.push(item.name);

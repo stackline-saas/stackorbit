@@ -611,7 +611,10 @@ function MainApp() {
     try {
       const res = await authFetch('/api/templates/deploy', {
         method: 'POST',
-        body: JSON.stringify(deployData),
+        body: JSON.stringify({
+          ...deployData,
+          projectId: selectedProjectId || undefined,
+        }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -652,15 +655,17 @@ function MainApp() {
     );
   }
 
+  const selectedProject = projects.find((p) => p.id === selectedProjectId) || null;
+  const isDefaultProject = selectedProject?.isDefault ?? true;
+
   const displayedServices = selectedProjectId
-    ? services.filter((s) => s.projectId === selectedProjectId)
+    ? services.filter((s) => s.projectId === selectedProjectId || (isDefaultProject && !s.projectId))
     : services;
 
   const displayedServiceIds = new Set(displayedServices.map((s) => s.id));
   const displayedDomains = selectedProjectId
     ? domains.filter((d) => displayedServiceIds.has(d.serviceId))
     : domains;
-  const selectedProject = projects.find((p) => p.id === selectedProjectId) || null;
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">

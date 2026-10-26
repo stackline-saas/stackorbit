@@ -4,6 +4,7 @@ import { prisma, logAudit } from '../db.js';
 import { dockerService } from '../services/docker.service.js';
 import { traefikService } from '../services/traefik.service.js';
 import { queueService } from '../services/queue.service.js';
+import { resolveGitToken } from '../services/git-token.service.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.middleware.js';
 
 const router = Router();
@@ -13,8 +14,11 @@ interface ServiceMetadata {
   composeProject?: string;
   linkedContainers?: string[];
   gitToken?: string;
+  gitProviderId?: string;
   buildContext?: string;
   buildArgs?: Record<string, string>;
+  primaryContainer?: string;
+  primaryPort?: number;
 }
 
 export function parseServiceMetadata(notes?: string | null): { userNotes: string; meta: ServiceMetadata } {
@@ -79,9 +83,31 @@ router.get('/', requireAuth, async (req, res) => {
   const { projectId } = req.query;
 
   try {
+    // Auto-heal: Garante que nenhum serviço fique invisível vinculando serviços sem projeto ao projeto padrão e ao host padrão
+    const defaultProject = (await prisma.project.findFirst({ where: { isDefault: true } })) || (await prisma.project.findFirst());
+    const defaultHost = (await prisma.dockerHost.findFirst({ where: { isDefault: true } })) || (await prisma.dockerHost.findFirst());
+
+    if (defaultProject) {
+      await prisma.service.updateMany({
+        where: { projectId: null },
+        data: { projectId: defaultProject.id },
+      });
+    }
+
+    if (defaultHost) {
+      await prisma.service.updateMany({
+        where: { dockerHostId: null },
+        data: { dockerHostId: defaultHost.id },
+      });
+    }
+
     const where: any = {};
     if (projectId && typeof projectId === 'string') {
-      where.projectId = projectId;
+      if (defaultProject && projectId === defaultProject.id) {
+        where.OR = [{ projectId }, { projectId: null }];
+      } else {
+        where.projectId = projectId;
+      }
     }
 
     const services = await prisma.service.findMany({
@@ -210,6 +236,20 @@ router.post('/compose/import', requireAuth, async (req: AuthenticatedRequest, re
       include: { domains: true },
     });
 
+    let finalProjectId = req.body.projectId;
+    let finalDockerHostId = req.body.dockerHostId;
+
+    if (!finalProjectId) {
+      const defProj = (await prisma.project.findFirst({ where: { isDefault: true } })) || (await prisma.project.findFirst());
+      finalProjectId = defProj?.id || null;
+    }
+
+    if (!finalDockerHostId && finalProjectId) {
+      const hostInProject = await prisma.dockerHost.findFirst({ where: { projectId: finalProjectId } });
+      const defHost = hostInProject || (await prisma.dockerHost.findFirst({ where: { isDefault: true } }));
+      finalDockerHostId = defHost?.id || null;
+    }
+
     if (service) {
       service = await prisma.service.update({
         where: { id: service.id },
@@ -220,6 +260,8 @@ router.post('/compose/import', requireAuth, async (req: AuthenticatedRequest, re
           image: primary?.image || service.image,
           status: primary?.status || 'running',
           notes: metaNotes,
+          projectId: service.projectId || finalProjectId,
+          dockerHostId: service.dockerHostId || finalDockerHostId,
         },
         include: { domains: true },
       });
@@ -236,6 +278,8 @@ router.post('/compose/import', requireAuth, async (req: AuthenticatedRequest, re
           sourceType: 'IMAGE',
           notes: metaNotes,
           webhookSecret,
+          projectId: finalProjectId,
+          dockerHostId: finalDockerHostId,
         },
         include: { domains: true },
       });
@@ -346,15 +390,49 @@ router.get('/:id/containers', requireAuth, async (req, res) => {
     const { userNotes, meta } = parseServiceMetadata(service.notes);
     const linkedList = meta.linkedContainers || [];
 
-    const allContainers = await dockerService.listContainers();
+    const allContainers = await dockerService.listContainers(service.dockerHostId);
     const matchedContainers = matchContainersForService(service, allContainers);
+    const dockerClient = await dockerService.getClient(service.dockerHostId);
 
-    const enriched = matchedContainers.map((c) => ({
-      ...c,
-      isPrimary: c.name === service.containerName || c.id === service.containerId,
-      isOnProxyNet: c.networks ? c.networks.includes('proxy-net') : false,
-      isManuallyLinked: linkedList.includes(c.name) || linkedList.includes(c.id),
-    }));
+    const enriched = await Promise.all(
+      matchedContainers.map(async (c) => {
+        let ports = [...(c.ports || [])];
+        let detectedPort: number | null = null;
+
+        const existingPrivate = ports.find((p) => p.privatePort);
+        if (existingPrivate) {
+          detectedPort = existingPrivate.privatePort;
+        }
+
+        // Try deeper inspection if no ports exposed: ONLY check ExposedPorts defined in image/compose
+        if (!detectedPort && c.id) {
+          try {
+            const inspect = await dockerClient.getContainer(c.id).inspect();
+            if (inspect.Config?.ExposedPorts) {
+              for (const ep of Object.keys(inspect.Config.ExposedPorts)) {
+                const m = ep.match(/^(\d+)(?:\/(\w+))?$/);
+                if (m) {
+                  const pNum = Number(m[1]);
+                  detectedPort = pNum;
+                  if (!ports.some((p) => p.privatePort === pNum)) {
+                    ports.push({ privatePort: pNum, type: m[2] || 'tcp' });
+                  }
+                }
+              }
+            }
+          } catch {}
+        }
+
+        return {
+          ...c,
+          ports,
+          detectedPort,
+          isPrimary: c.name === (meta.primaryContainer || service.containerName) || c.id === service.containerId,
+          isOnProxyNet: c.networks ? c.networks.includes('proxy-net') : false,
+          isManuallyLinked: linkedList.includes(c.name) || linkedList.includes(c.id),
+        };
+      })
+    );
 
     const primary = allContainers.find((c) => c.name === service.containerName || c.id === service.containerId);
     const composeProject = meta.composeProject || primary?.composeProject || null;
@@ -487,11 +565,30 @@ router.post('/:id/set-primary-container', requireAuth, async (req: Authenticated
     // Attach to proxy-net
     await dockerService.attachToNetwork(containerName);
 
+    const { userNotes, meta } = parseServiceMetadata(service.notes);
+    meta.primaryContainer = containerName;
+    meta.primaryPort = port;
+
+    const isCompose = Boolean(
+      meta.composeProject ||
+      (service.sourceType === 'GITHUB' &&
+        (service.dockerfilePath?.includes('compose') ||
+          service.dockerfilePath?.endsWith('.yml') ||
+          service.dockerfilePath?.endsWith('.yaml')))
+    );
+
+    // For compose stacks, keep the base stack containerName (e.g. infopulse) and do not rename the stack to a replica name!
+    const rawBase = meta.composeProject || service.name || service.containerName;
+    const cleanBase = rawBase.replace(/-(?:frontend|api|worker|web|app)?-\d+$/, '').trim();
+    const baseContainerName = isCompose ? (cleanBase || 'infopulse') : containerName;
+    const finalNotes = serializeServiceMetadata(userNotes, meta);
+
     const updated = await prisma.service.update({
       where: { id: service.id },
       data: {
-        containerName,
+        containerName: baseContainerName,
         internalPort: port,
+        notes: finalNotes,
       },
     });
 
@@ -525,6 +622,7 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
     gitBranch,
     dockerfilePath,
     gitToken,
+    gitProviderId,
     buildContext,
     buildArgs,
     triggerInitialBuild,
@@ -569,6 +667,7 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
 
     const { userNotes, meta } = parseServiceMetadata(notes);
     if (gitToken) meta.gitToken = gitToken.trim();
+    if (gitProviderId) meta.gitProviderId = gitProviderId;
     if (buildContext) meta.buildContext = buildContext.trim();
     if (buildArgs) meta.buildArgs = buildArgs;
     const finalNotes = serializeServiceMetadata(userNotes, meta);
@@ -664,6 +763,12 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
       }
     } else if (service.sourceType === 'GITHUB' && service.gitRepoUrl) {
       if (triggerInitialBuild !== false) {
+        const finalToken = await resolveGitToken(prisma, {
+          gitRepoUrl: service.gitRepoUrl,
+          gitProviderId: meta.gitProviderId,
+          explicitToken: meta.gitToken,
+        });
+
         // Enqueue initial build
         await queueService.addBuildJob({
           serviceId: service.id,
@@ -672,7 +777,7 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
           dockerfilePath: service.dockerfilePath || 'Dockerfile',
           envVars: service.envVars || undefined,
           triggeredBy: req.user?.name || 'Administrador',
-          gitToken: meta.gitToken,
+          gitToken: finalToken,
           buildContext: meta.buildContext,
           buildArgs: meta.buildArgs,
         });
@@ -719,8 +824,22 @@ router.put('/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
     const { userNotes, meta } = parseServiceMetadata(service.notes);
     let updatedMeta = { ...meta };
     if (updates.gitToken !== undefined) {
-      if (updates.gitToken && updates.gitToken.trim()) updatedMeta.gitToken = updates.gitToken.trim();
-      else delete updatedMeta.gitToken;
+      const trimmed = updates.gitToken.trim();
+      // Não sobrescreve o token real se o frontend enviou o valor mascarado (••••••••xxxx ou ********xxxx)
+      if (trimmed.startsWith('••••••••') || trimmed.startsWith('********')) {
+        // Mantém o token real pré-existente
+      } else if (trimmed) {
+        updatedMeta.gitToken = trimmed;
+      } else {
+        delete updatedMeta.gitToken;
+      }
+    }
+    if (updates.gitProviderId !== undefined) {
+      if (updates.gitProviderId) {
+        updatedMeta.gitProviderId = updates.gitProviderId;
+      } else {
+        delete updatedMeta.gitProviderId;
+      }
     }
     if (updates.buildContext !== undefined) {
       updatedMeta.buildContext = updates.buildContext ? updates.buildContext.trim() : '.';
@@ -729,7 +848,7 @@ router.put('/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
       const incoming = parseServiceMetadata(updates.notes);
       updatedMeta = { ...updatedMeta, ...incoming.meta };
       finalNotes = serializeServiceMetadata(incoming.userNotes, updatedMeta);
-    } else if (updates.gitToken !== undefined || updates.buildContext !== undefined) {
+    } else if (updates.gitToken !== undefined || updates.gitProviderId !== undefined || updates.buildContext !== undefined) {
       finalNotes = serializeServiceMetadata(userNotes, updatedMeta);
     }
 
@@ -758,18 +877,34 @@ router.put('/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
 
     // If envVars or limits updated, update live container if running
     if (updates.envVars !== undefined || updates.restartPolicy !== undefined) {
-      try {
-        await dockerService.deployContainer({
-          containerName: updated.containerName,
-          image: updated.image,
-          envVars: updated.envVars || undefined,
-          restartPolicy: updated.restartPolicy || undefined,
-          memoryLimitMb: updated.memoryLimitMb || undefined,
-          cpuLimit: updated.cpuLimit || undefined,
-          command: updated.command || undefined,
-        });
-      } catch (deployErr: any) {
-        console.warn('Aviso ao atualizar container em execução:', deployErr.message);
+      if (service.sourceType === 'GITHUB') {
+        try {
+          await queueService.addBuildJob({
+            serviceId: service.id,
+            gitRepoUrl: service.gitRepoUrl || '',
+            gitBranch: service.gitBranch || 'main',
+            dockerfilePath: service.dockerfilePath || 'docker-compose.yml',
+            envVars: updated.envVars || undefined,
+            triggeredBy: req.user?.name || 'Administrador (Fast Reload Env)',
+            fastReloadEnvOnly: true,
+          });
+        } catch (qErr: any) {
+          console.warn('Aviso ao enfileirar fast reload de ambiente:', qErr.message);
+        }
+      } else {
+        try {
+          await dockerService.deployContainer({
+            containerName: updated.containerName,
+            image: updated.image,
+            envVars: updated.envVars || undefined,
+            restartPolicy: updated.restartPolicy || undefined,
+            memoryLimitMb: updated.memoryLimitMb || undefined,
+            cpuLimit: updated.cpuLimit || undefined,
+            command: updated.command || undefined,
+          });
+        } catch (deployErr: any) {
+          console.warn('Aviso ao atualizar container em execução:', deployErr.message);
+        }
       }
     }
 
@@ -985,6 +1120,12 @@ const handleRebuild = async (req: AuthenticatedRequest, res: any) => {
       data: { buildStatus: 'cloning' },
     });
 
+    const finalToken = await resolveGitToken(prisma, {
+      gitRepoUrl: service.gitRepoUrl,
+      gitProviderId: meta.gitProviderId,
+      explicitToken: meta.gitToken,
+    });
+
     const job = await queueService.addBuildJob({
       serviceId: service.id,
       gitRepoUrl: service.gitRepoUrl,
@@ -992,7 +1133,7 @@ const handleRebuild = async (req: AuthenticatedRequest, res: any) => {
       dockerfilePath: service.dockerfilePath || 'Dockerfile',
       envVars: service.envVars || undefined,
       triggeredBy: req.user?.name || 'Administrador',
-      gitToken: meta.gitToken,
+      gitToken: finalToken,
       buildContext: meta.buildContext,
       buildArgs: meta.buildArgs,
     });

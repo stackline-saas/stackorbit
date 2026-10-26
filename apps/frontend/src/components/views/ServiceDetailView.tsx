@@ -51,6 +51,7 @@ import {
   Minus,
   Clock,
   GitCommit,
+  Pencil,
 } from 'lucide-react';
 import type { Service, Domain, DockerContainerInfo } from '../../types/index.ts';
 import { useNotification } from '../../context/NotificationContext.tsx';
@@ -136,8 +137,6 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
   const [gitRepoUrl, setGitRepoUrl] = useState(service.gitRepoUrl || '');
   const [gitBranch, setGitBranch] = useState(service.gitBranch || 'main');
   const [dockerfilePath, setDockerfilePath] = useState(service.dockerfilePath || 'Dockerfile');
-  const [gitToken, setGitToken] = useState(service.meta?.gitToken || '');
-  const [showGitToken, setShowGitToken] = useState(false);
   const [buildContext, setBuildContext] = useState(service.meta?.buildContext || '.');
   const [buildsHistory, setBuildsHistory] = useState<any[]>([]);
   const [isLoadingBuilds, setIsLoadingBuilds] = useState(false);
@@ -369,7 +368,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
   const [isSavingQuickDomain, setIsSavingQuickDomain] = useState(false);
 
   const handleOpenQuickDomainModal = (c: DockerContainerInfo) => {
-    const p = c.ports?.find((port) => port.privatePort)?.privatePort || (c.name === containerName ? internalPort : 80);
+    const p = (c as any).detectedPort || c.ports?.find((port) => port.privatePort)?.privatePort || (c.name === containerName ? internalPort : 80);
     setQuickDomainTargetContainer(c.name);
     setQuickDomainTargetPort(p);
     setQuickDomainInput('');
@@ -746,7 +745,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
     setVolumes(service.volumes || '');
     setNetwork(service.network || 'proxy-net');
     setRawEnv(service.envVars || '');
-  }, [service]);
+  }, [service.id]);
 
   // Convert rawEnv to structured rows
   const envRows: EnvRow[] = useMemo(() => {
@@ -1067,19 +1066,19 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
   };
 
   // Save handler
-  const handleSave = async () => {
+  const handleSave = async (): Promise<boolean> => {
     if (!name.trim()) {
       showNotification('error', 'Validação', 'O nome do serviço é obrigatório.');
-      return;
+      return false;
     }
     if (!containerName.trim()) {
       showNotification('error', 'Validação', 'O nome do container é obrigatório.');
-      return;
+      return false;
     }
     const portNum = Number(internalPort);
     if (!portNum || portNum < 1 || portNum > 65535) {
       showNotification('error', 'Validação', 'A porta interna deve estar entre 1 e 65535.');
-      return;
+      return false;
     }
 
     setIsSaving(true);
@@ -1096,7 +1095,6 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
         gitRepoUrl: sourceType === 'GITHUB' ? gitRepoUrl.trim() : undefined,
         gitBranch: sourceType === 'GITHUB' ? gitBranch.trim() : undefined,
         dockerfilePath: sourceType === 'GITHUB' ? dockerfilePath.trim() : undefined,
-        gitToken: sourceType === 'GITHUB' ? (gitToken.trim() || undefined) : undefined,
         buildContext: sourceType === 'GITHUB' ? (buildContext.trim() || '.') : undefined,
         envVars: rawEnv,
         restartPolicy: restartPolicy as any,
@@ -1114,8 +1112,10 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
           `As configurações do serviço "${name}" foram aplicadas com sucesso.`
         );
       }
+      return Boolean(success);
     } catch (err: any) {
       showNotification('error', 'Erro ao Salvar', err.message);
+      return false;
     } finally {
       setIsSaving(false);
     }
@@ -1385,9 +1385,15 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
 
           {sourceType === 'GITHUB' && onTriggerRebuild && (
             <button
-              onClick={() => onTriggerRebuild(service.id)}
+              onClick={async () => {
+                if (isDirty) {
+                  const saved = await handleSave();
+                  if (!saved) return;
+                }
+                onTriggerRebuild(service.id);
+              }}
               className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center gap-1.5 transition-colors"
-              title="Disparar novo build a partir do GitHub"
+              title="Salvar e disparar novo build a partir do GitHub"
             >
               <GitBranch className="w-3.5 h-3.5" />
               <span>Rebuild Git</span>
@@ -1880,7 +1886,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                               </thead>
                               <tbody className="divide-y divide-slate-100">
                                 {group.containers.map((c, idx) => {
-                                  const isPrimary = c.name === containerName || c.isPrimary;
+                                  const isPrimary = c.isPrimary !== undefined ? c.isPrimary : c.name === containerName;
                                   const isRunning = c.status === 'running' || c.state === 'running';
                                   const isOnProxyNet =
                                     c.isOnProxyNet || (c.networks && c.networks.includes('proxy-net'));
@@ -1910,15 +1916,32 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                         <div className="space-y-1">
                                           <div className="flex items-center gap-1.5 flex-wrap">
                                             {isPrimary ? (
-                                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200 shadow-2xs">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const currentP = internalPort;
+                                                  const suggested = (c as any).detectedPort || currentP;
+                                                  const entered = prompt(
+                                                    `Alterar porta interna do container principal "${c.name}" para o Traefik:`,
+                                                    String(suggested)
+                                                  );
+                                                  if (entered && !isNaN(Number(entered)) && Number(entered) > 0) {
+                                                    handleSetPrimary(c.name, Number(entered));
+                                                  }
+                                                }}
+                                                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 hover:bg-blue-200 text-blue-800 border border-blue-300 shadow-2xs transition-colors cursor-pointer"
+                                                title="Clique para alterar a porta interna deste container direcionada pelo Traefik"
+                                              >
                                                 <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
                                                 <span>Principal (:{internalPort})</span>
-                                              </span>
+                                                <Pencil className="w-2.5 h-2.5 text-blue-600 ml-0.5" />
+                                              </button>
                                             ) : (
                                               <button
                                                 type="button"
                                                 onClick={() => {
                                                   const samplePort =
+                                                    (c as any).detectedPort ||
                                                     c.ports?.find((p) => p.privatePort)?.privatePort ||
                                                     internalPort;
                                                   handleSetPrimary(c.name, samplePort);
@@ -2024,17 +2047,43 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                       {/* Ports */}
                                       <td className="px-4 py-3 font-mono text-slate-600 text-xs">
                                         {c.ports && c.ports.length > 0 ? (
-                                          <div className="flex items-center gap-1 flex-wrap">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
                                             {c.ports.map((p, pIdx) => (
                                               <span
                                                 key={pIdx}
-                                                className="px-1.5 py-0.2 bg-slate-100 text-slate-700 rounded text-[10px]"
+                                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${
+                                                  p.publicPort
+                                                    ? 'bg-blue-50 text-blue-800 border border-blue-200'
+                                                    : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                                }`}
+                                                title={
+                                                  p.publicPort
+                                                    ? `Mapeamento Host: ${p.publicPort} ➔ ${p.privatePort}`
+                                                    : `Porta Interna do Container: ${p.privatePort}/${p.type || 'tcp'}`
+                                                }
                                               >
-                                                {p.publicPort ? `${p.publicPort}->` : ''}
-                                                {p.privatePort}/{p.type}
+                                                {p.publicPort ? (
+                                                  <span>{p.publicPort} ➔ {p.privatePort}/{p.type || 'tcp'}</span>
+                                                ) : (
+                                                  <span>:{p.privatePort}/{p.type || 'tcp'} (interna)</span>
+                                                )}
                                               </span>
                                             ))}
                                           </div>
+                                        ) : (c as any).detectedPort ? (
+                                          <span
+                                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200"
+                                            title="Porta interna identificada no container"
+                                          >
+                                            :{(c as any).detectedPort}/tcp (interna)
+                                          </span>
+                                        ) : isPrimary ? (
+                                          <span
+                                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200"
+                                            title="Porta interna configurada para o Traefik"
+                                          >
+                                            :{internalPort}/tcp (configurada)
+                                          </span>
                                         ) : (
                                           <span className="text-slate-400 text-[11px]">-</span>
                                         )}
@@ -3497,31 +3546,22 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                     ) : null}
                   </div>
 
-                  {/* GitHub PAT Token */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Token GitHub (Personal Access Token - PAT)
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showGitToken ? 'text' : 'password'}
-                        value={gitToken}
-                        onChange={(e) => setGitToken(e.target.value)}
-                        placeholder="ghp_xxxxxxxxxxxxxxxxxxxx (obrigatório para repositórios privados)"
-                        className="w-full px-3 py-2 pr-10 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowGitToken(!showGitToken)}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                        title={showGitToken ? 'Ocultar token' : 'Exibir token'}
-                      >
-                        {showGitToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
+                  {/* Git Authentication info */}
+                  <div className="flex items-center gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0">
+                      <Key className="w-4 h-4 text-emerald-600" />
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      Necessário apenas para repositórios privados ou organizações. O token é mantido com segurança e mascarado nos logs de compilação.
-                    </p>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold text-slate-800 flex items-center gap-2">
+                        <span>Autenticação Git Automática</span>
+                        <span className="px-1.5 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-700 rounded-full">
+                          Ativa
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Utiliza automaticamente as credenciais da conta GitHub conectada em <span className="font-semibold text-slate-700">Configurações &gt; Integrações</span> para repositórios privados.
+                      </p>
+                    </div>
                   </div>
 
                   {/* Webhook integration panel */}

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma, logAudit } from '../db.js';
 import { traefikService } from '../services/traefik.service.js';
+import { dockerService } from '../services/docker.service.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.middleware.js';
 
 const router = Router();
@@ -62,7 +63,33 @@ router.post('/apply', requireAuth, async (req: AuthenticatedRequest, res) => {
   }
 });
 
-// 4. Traefik revisions history
+// 4. Restart Traefik container directly from UI
+router.post('/restart', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const docker = await dockerService.getClient();
+    const candidateNames = ['stackorbit-traefik', 'traefik', 'domain-manager-traefik'];
+    for (const name of candidateNames) {
+      try {
+        const container = docker.getContainer(name);
+        await container.restart();
+        await logAudit({
+          userId: req.user?.id,
+          userName: req.user?.name || 'Administrador',
+          action: 'TRAEFIK_REINICIADO',
+          entityType: 'PROXY',
+          details: `Container do Traefik (${name}) reiniciado com sucesso via interface web.`,
+          ipAddress: req.ip,
+        });
+        return res.json({ success: true, message: `Traefik (${name}) reiniciado com sucesso.` });
+      } catch {}
+    }
+    return res.status(404).json({ error: 'Container do Traefik não localizado no Docker.' });
+  } catch (err: any) {
+    return res.status(500).json({ error: `Erro ao reiniciar Traefik: ${err.message}` });
+  }
+});
+
+// 5. Traefik revisions history
 router.get('/revisions', requireAuth, async (req, res) => {
   try {
     const revisions = await prisma.proxyConfiguration.findMany({

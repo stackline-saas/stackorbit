@@ -195,8 +195,6 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
   const [dockerfilePath, setDockerfilePath] = useState('docker-compose.yml');
   const [buildContext, setBuildContext] = useState('.');
   const [gitRepoUrl, setGitRepoUrl] = useState('');
-  const [gitToken, setGitToken] = useState('');
-  const [showToken, setShowToken] = useState(false);
   const [triggerInitialBuild, setTriggerInitialBuild] = useState(true);
   const [envVars, setEnvVars] = useState('');
   const [envMode, setEnvMode] = useState<'raw' | 'keyvalue'>('raw');
@@ -360,9 +358,6 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
         if (data.suggestedPort) {
           setInternalPort(data.suggestedPort);
         }
-        if (data.token) {
-          setGitToken(data.token);
-        }
       }
     } catch {} finally {
       setIsInspecting(false);
@@ -520,7 +515,7 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
         gitRepoUrl: gitRepoUrl.trim(),
         gitBranch: selectedBranch.trim() || 'main',
         dockerfilePath: dockerfilePath.trim() || (definitionType === 'compose' ? 'docker-compose.yml' : 'Dockerfile'),
-        gitToken: gitToken.trim() || undefined,
+        gitProviderId: activeGitHubProvider?.id || undefined,
         buildContext: definitionType === 'compose' ? '.' : (buildContext.trim() || '.'),
         triggerInitialBuild,
         envVars: finalEnv.trim() || undefined,
@@ -1197,27 +1192,19 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
                         </div>
                       )}
 
-                      {/* PAT Token for Private Repos */}
-                      {(selectedRepo ? selectedRepo.private : true) && (
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
-                            <Key className="w-3.5 h-3.5 text-amber-500" />
-                            <span>Token GitHub PAT (Preenchido Automaticamente)</span>
-                          </label>
-                          <div className="relative">
-                            <input
-                              type={showToken ? 'text' : 'password'}
-                              value={gitToken}
-                              onChange={(e) => setGitToken(e.target.value)}
-                              className="w-full pl-3 pr-10 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setShowToken(!showToken)}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                            >
-                              {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                            </button>
+                      {/* Git Account status */}
+                      {activeGitHubProvider ? (
+                        <div className="flex items-center gap-2.5 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <div className="text-xs text-emerald-900">
+                            <strong>Autenticação Git:</strong> Utilizando credenciais da conta <strong>@{activeGitHubProvider.accountName}</strong> conectada em Integrações.
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2.5 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                          <GitBranch className="w-4 h-4 text-slate-500 shrink-0" />
+                          <div className="text-xs text-slate-600">
+                            Para repositórios privados, certifique-se de conectar sua conta em <strong>Integrações Git</strong>.
                           </div>
                         </div>
                       )}

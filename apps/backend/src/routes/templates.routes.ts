@@ -14,7 +14,7 @@ router.get('/', requireAuth, (req, res) => {
 
 // 2. Deploy template
 router.post('/deploy', requireAuth, async (req: AuthenticatedRequest, res) => {
-  const { templateId, serviceName, containerName, values, domainName } = req.body;
+  const { templateId, serviceName, containerName, values, domainName, projectId, dockerHostId } = req.body;
 
   const template = SERVICE_TEMPLATES.find((t) => t.id === templateId);
   if (!template) {
@@ -31,9 +31,24 @@ router.post('/deploy', requireAuth, async (req: AuthenticatedRequest, res) => {
     }
 
     const envVars = template.generateEnv(values || {});
+    const command = template.generateCommand ? template.generateCommand(values || {}).trim() || undefined : undefined;
     const connectionString = template.generateConnectionString
       ? template.generateConnectionString(values || {}, cleanContainerName)
       : undefined;
+
+    let finalProjectId = projectId;
+    let finalDockerHostId = dockerHostId;
+
+    if (!finalProjectId) {
+      const defProj = (await prisma.project.findFirst({ where: { isDefault: true } })) || (await prisma.project.findFirst());
+      finalProjectId = defProj?.id || null;
+    }
+
+    if (!finalDockerHostId && finalProjectId) {
+      const hostInProject = await prisma.dockerHost.findFirst({ where: { projectId: finalProjectId } });
+      const defHost = hostInProject || (await prisma.dockerHost.findFirst({ where: { isDefault: true } }));
+      finalDockerHostId = defHost?.id || null;
+    }
 
     // Create service
     const service = await prisma.service.create({
@@ -45,8 +60,11 @@ router.post('/deploy', requireAuth, async (req: AuthenticatedRequest, res) => {
         status: 'running',
         isActive: true,
         sourceType: 'IMAGE',
+        command,
         envVars,
         notes: `Instalado via Template: ${template.name}`,
+        projectId: finalProjectId,
+        dockerHostId: finalDockerHostId,
       },
     });
 
@@ -56,6 +74,7 @@ router.post('/deploy', requireAuth, async (req: AuthenticatedRequest, res) => {
         containerName: cleanContainerName,
         image: template.defaultImage,
         envVars,
+        command,
       });
       await prisma.service.update({ where: { id: service.id }, data: { containerId } });
     } catch (e: any) {

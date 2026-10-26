@@ -348,10 +348,33 @@ export class TraefikService {
       fs.mkdirSync(targetDir, { recursive: true });
     }
 
-    // Atomic write using a temp file then rename
+    // Atomic write using a temp file then rename, plus direct rewrite for inotify watcher
     const tempFile = `${this.configPath}.tmp.${Date.now()}`;
     fs.writeFileSync(tempFile, yamlContent, 'utf-8');
     fs.renameSync(tempFile, this.configPath);
+    try {
+      fs.writeFileSync(this.configPath, yamlContent, 'utf-8');
+    } catch {}
+
+    // Ensure all target containers are connected to proxy-net
+    try {
+      const allDomains = await prisma.domain.findMany({
+        where: { isActive: true },
+        include: { service: true },
+      });
+      for (const d of allDomains) {
+        if (d.targetContainer) {
+          const targets = parseDomainTargets(d.targetContainer, d.targetPort, d.service.containerName, d.service.internalPort);
+          for (const t of targets) {
+            if (t.container) {
+              await dockerService.attachToNetwork(t.container, undefined, undefined, d.service.dockerHostId);
+            }
+          }
+        }
+      }
+    } catch (netErr: any) {
+      console.warn('[TraefikService] Aviso ao verificar redes dos containers:', netErr.message);
+    }
 
     // Sync to Docker volume directly if Traefik is running in Docker and configPath is external/local
     await this.syncToDockerContainer(yamlContent);
@@ -381,15 +404,18 @@ export class TraefikService {
   private async syncToDockerContainer(yamlContent: string): Promise<boolean> {
     try {
       const docker = await dockerService.getClient();
-      const candidateNames = ['domain-manager-api', 'domain-manager-worker'];
+      const candidateNames = ['stackorbit-traefik', 'stackorbit-api', 'traefik', 'domain-manager-api'];
       const b64 = Buffer.from(yamlContent, 'utf-8').toString('base64');
-      const cmd = `echo '${b64}' | base64 -d > /app/traefik/dynamic/dynamic_conf.yml`;
 
       for (const name of candidateNames) {
         try {
           const container = docker.getContainer(name);
           const inspect = await container.inspect();
           if (inspect.State?.Running) {
+            const destPath = name.includes('traefik')
+              ? '/etc/traefik/dynamic/dynamic_conf.yml'
+              : '/app/traefik/dynamic/dynamic_conf.yml';
+            const cmd = `echo '${b64}' | base64 -d > ${destPath}`;
             const exec = await container.exec({
               Cmd: ['sh', '-c', cmd],
               AttachStdout: false,

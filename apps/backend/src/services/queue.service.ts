@@ -12,6 +12,7 @@ export interface BuildJobData {
   gitToken?: string;
   buildContext?: string;
   buildArgs?: Record<string, string>;
+  fastReloadEnvOnly?: boolean;
 }
 
 export class QueueService {

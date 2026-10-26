@@ -34,6 +34,46 @@ export interface BuildJobData {
   gitToken?: string;
   buildContext?: string;
   buildArgs?: Record<string, string>;
+  fastReloadEnvOnly?: boolean;
+}
+
+function extractEnvFilePathsFromCompose(composeContent: string): string[] {
+  const envFiles = new Set<string>();
+  const lines = composeContent.split('\n');
+  let inEnvFileBlock = false;
+  let blockIndent = 0;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+
+    const matchSingle = line.match(/^env_file:\s*([^\s#]+)/);
+    if (matchSingle) {
+      envFiles.add(matchSingle[1].replace(/['"]/g, ''));
+      inEnvFileBlock = false;
+      continue;
+    }
+
+    if (/^env_file:\s*$/.test(line)) {
+      inEnvFileBlock = true;
+      blockIndent = rawLine.search(/\S/);
+      continue;
+    }
+
+    if (inEnvFileBlock) {
+      const currentIndent = rawLine.search(/\S/);
+      if (currentIndent <= blockIndent && !line.startsWith('-')) {
+        inEnvFileBlock = false;
+      } else {
+        const itemMatch = line.match(/^-\s*(?:path:\s*)?([^\s#]+)/);
+        if (itemMatch) {
+          envFiles.add(itemMatch[1].replace(/['"]/g, ''));
+        }
+      }
+    }
+  }
+
+  return Array.from(envFiles);
 }
 
 // -----------------------------------------------------------------------------
@@ -197,7 +237,7 @@ async function attachToNetwork(
 // 3. GIT BUILD & DEPLOY JOB PROCESSOR
 // -----------------------------------------------------------------------------
 async function processBuildJob(data: BuildJobData): Promise<void> {
-  const { serviceId, gitRepoUrl, gitBranch, dockerfilePath, envVars, gitToken, buildContext, buildArgs } = data;
+  const { serviceId, gitRepoUrl, gitBranch, dockerfilePath, envVars, gitToken, buildContext, buildArgs, fastReloadEnvOnly } = data;
   console.log(`\n🔨 [Worker] Processando build para o serviço: ${serviceId}`);
 
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
@@ -208,14 +248,65 @@ async function processBuildJob(data: BuildJobData): Promise<void> {
 
   // Check if token was provided in data or stored in service metadata notes
   let token = gitToken;
-  if (!token && service.notes) {
+  let serviceMeta: any = {};
+  if (service.notes) {
     try {
-      const match = service.notes.match(/<!--dm-meta:(.*?)-->/);
+      const match = service.notes.match(/<!--dm-meta:([\s\S]*?)-->/);
       if (match) {
-        const meta = JSON.parse(match[1]);
-        if (meta.gitToken) token = meta.gitToken;
+        serviceMeta = JSON.parse(match[1]);
+        if (serviceMeta.gitToken && !serviceMeta.gitToken.startsWith('••••••••') && !serviceMeta.gitToken.startsWith('********')) {
+          token = serviceMeta.gitToken;
+        }
       }
     } catch {}
+  }
+
+  // Automatic token resolution from Git Providers (integrated accounts)
+  if (!token || token.startsWith('••••••••') || token.startsWith('********')) {
+    try {
+      // 1. By gitProviderId
+      if (serviceMeta.gitProviderId) {
+        const p = await (prisma as any).gitProvider.findUnique({
+          where: { id: serviceMeta.gitProviderId },
+        });
+        if (p?.accessToken && p.isActive) {
+          token = p.accessToken;
+        }
+      }
+
+      // 2. By repository owner from URL (e.g. https://github.com/vcmuniz/infopulse.git -> vcmuniz)
+      if (!token && gitRepoUrl) {
+        const match = gitRepoUrl.match(/github\.com[:/]([^/]+)\/([^/.]+)/i);
+        const owner = match ? match[1] : null;
+        if (owner) {
+          const providers = await (prisma as any).gitProvider.findMany({
+            where: { provider: 'github', isActive: true },
+          });
+          const matched = providers.find(
+            (p: any) => p.accountName && p.accountName.toLowerCase() === owner.toLowerCase()
+          );
+          if (matched?.accessToken) {
+            token = matched.accessToken;
+          }
+        }
+      }
+
+      // 3. Fallback to active GitHub provider
+      if (!token) {
+        const globalProvider = await (prisma as any).gitProvider.findFirst({
+          where: {
+            provider: 'github',
+            isActive: true,
+          },
+          orderBy: { updatedAt: 'desc' },
+        });
+        if (globalProvider?.accessToken) {
+          token = globalProvider.accessToken;
+        }
+      }
+    } catch (e: any) {
+      console.warn('[Worker] Aviso ao resolver credencial Git:', e.message);
+    }
   }
 
   const buildLogRecord = await prisma.buildLog.create({
@@ -250,29 +341,42 @@ async function processBuildJob(data: BuildJobData): Promise<void> {
   const buildWorkspace = path.resolve(process.cwd(), 'temp', 'builds', service.id);
   let isCompose = false;
 
+  const isFastReload = Boolean(fastReloadEnvOnly && fs.existsSync(buildWorkspace));
+
   try {
-    if (fs.existsSync(buildWorkspace)) {
-      fs.rmSync(buildWorkspace, { recursive: true, force: true });
+    if (!isFastReload) {
+      if (fs.existsSync(buildWorkspace)) {
+        fs.rmSync(buildWorkspace, { recursive: true, force: true });
+      }
+      fs.mkdirSync(buildWorkspace, { recursive: true });
+
+      // 1. Git Clone (with private token support if available)
+      let cloneUrl = gitRepoUrl;
+      if (token && cloneUrl.startsWith('https://')) {
+        cloneUrl = cloneUrl.replace('https://', `https://x-access-token:${token}@`);
+      }
+
+      await appendLogs(`[GIT] Clonando ${gitRepoUrl} (branch: ${gitBranch})...\n`);
+      const git = simpleGit();
+      await git.clone(cloneUrl, buildWorkspace, ['--branch', gitBranch, '--depth', '1']);
+      await appendLogs(`[GIT] Repositório clonado com sucesso.\n`);
+    } else {
+      await appendLogs(`[FAST RELOAD] Aplicando variáveis atualizadas diretamente no Docker Compose (sem rebuild de imagens)...\n`);
     }
-    fs.mkdirSync(buildWorkspace, { recursive: true });
 
-    // 1. Git Clone (with private token support if available)
-    let cloneUrl = gitRepoUrl;
-    if (token && cloneUrl.startsWith('https://')) {
-      cloneUrl = cloneUrl.replace('https://', `https://x-access-token:${token}@`);
-    }
-
-    await appendLogs(`[GIT] Clonando ${gitRepoUrl} (branch: ${gitBranch})...\n`);
-    const git = simpleGit();
-    await git.clone(cloneUrl, buildWorkspace, ['--branch', gitBranch, '--depth', '1']);
-    await appendLogs(`[GIT] Repositório clonado com sucesso.\n`);
-
-    const gitInstance = simpleGit(buildWorkspace);
-    const commitLog = await gitInstance.log(['-n', '1']);
-    const commitHash = commitLog.latest?.hash.slice(0, 7) || 'HEAD';
-    const commitMsg = commitLog.latest?.message || '';
-    const commitAuthor = commitLog.latest?.author_name || '';
-    await appendLogs(`[GIT] Commit: ${commitHash} por ${commitAuthor} - ${commitMsg}\n`);
+    let commitHash = 'HEAD';
+    let commitMsg = '';
+    let commitAuthor = '';
+    try {
+      const gitInstance = simpleGit(buildWorkspace);
+      const commitLog = await gitInstance.log(['-n', '1']);
+      commitHash = commitLog.latest?.hash.slice(0, 7) || 'HEAD';
+      commitMsg = commitLog.latest?.message || '';
+      commitAuthor = commitLog.latest?.author_name || '';
+      if (!isFastReload) {
+        await appendLogs(`[GIT] Commit: ${commitHash} por ${commitAuthor} - ${commitMsg}\n`);
+      }
+    } catch {}
 
     // 2. Check definition type: Docker Compose vs single Dockerfile
     isCompose = Boolean(
@@ -289,32 +393,44 @@ async function processBuildJob(data: BuildJobData): Promise<void> {
       // -------------------------------------------------------------
       // DOCKER COMPOSE BUILD & UP
       // -------------------------------------------------------------
-      let composeFileRel = dockerfilePath || 'docker-compose.yml';
-      let composeFileAbs = path.resolve(buildWorkspace, composeFileRel);
+      const cleanRel = (dockerfilePath || 'docker-compose.yml').trim().replace(/^[/\\]+/, '');
+      let composeFileAbs = path.resolve(buildWorkspace, cleanRel);
+      let composeFileRel = cleanRel;
 
       if (!fs.existsSync(composeFileAbs)) {
-        const candidates = [
-          path.resolve(contextDir, composeFileRel),
-          path.resolve(buildWorkspace, 'docker-compose.yml'),
-          path.resolve(buildWorkspace, 'docker-compose.yaml'),
-          path.resolve(buildWorkspace, 'compose.yml'),
-          path.resolve(buildWorkspace, 'compose.yaml'),
-          path.resolve(buildWorkspace, 'infra', 'docker-compose.yml'),
-          path.resolve(buildWorkspace, 'infra', 'docker-compose.yaml'),
-        ];
-        const found = candidates.find((c) => fs.existsSync(c));
-        if (found) {
-          composeFileAbs = found;
-          composeFileRel = path.relative(buildWorkspace, found);
+        if (fs.existsSync(path.resolve(contextDir, cleanRel))) {
+          composeFileAbs = path.resolve(contextDir, cleanRel);
+          composeFileRel = path.relative(buildWorkspace, composeFileAbs);
+        } else if (!dockerfilePath || dockerfilePath === 'docker-compose.yml' || dockerfilePath === '/docker-compose.yml') {
+          const candidates = [
+            path.resolve(buildWorkspace, 'docker-compose.yml'),
+            path.resolve(buildWorkspace, 'docker-compose.yaml'),
+            path.resolve(buildWorkspace, 'compose.yml'),
+            path.resolve(buildWorkspace, 'compose.yaml'),
+            path.resolve(buildWorkspace, 'infra', 'docker-compose.yml'),
+            path.resolve(buildWorkspace, 'infra', 'docker-compose.yaml'),
+          ];
+          const found = candidates.find((c) => fs.existsSync(c));
+          if (found) {
+            composeFileAbs = found;
+            composeFileRel = path.relative(buildWorkspace, found);
+          } else {
+            throw new Error(
+              `Arquivo Docker Compose não localizado em "${cleanRel}". Verifique a estrutura do repositório.`
+            );
+          }
         } else {
           throw new Error(
-            `Arquivo Docker Compose não localizado em "${composeFileRel}". Verifique a estrutura do repositório.`
+            `Arquivo Docker Compose não localizado no repositório no caminho especificado: "${cleanRel}". Verifique se o caminho digitado existe no seu repositório Git.`
           );
         }
       }
 
       const composeDir = path.dirname(composeFileAbs);
-      const projectName = service.containerName.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+      const rawProjectName = serviceMeta.composeProject || service.name || service.containerName;
+      // Strip any accidental replica suffixes (e.g. -frontend-1, -api-1, -1) from project name
+      const cleanProjectName = rawProjectName.replace(/-(?:frontend|api|worker|web|app)?-\d+$/, '').trim();
+      const projectName = (cleanProjectName || service.name || 'stack').toLowerCase().replace(/[^a-z0-9_-]/g, '-');
 
       await appendLogs(`[COMPOSE] Docker Compose localizado em "${composeFileRel}". Iniciando stack...\n`);
       await prisma.service.update({
@@ -326,16 +442,51 @@ async function processBuildJob(data: BuildJobData): Promise<void> {
         data: { status: 'building', gitCommit: `${commitHash} - ${commitMsg.slice(0, 40)}` },
       });
 
-      // Write .env if envVars exist
-      const activeEnv = envVars || service.envVars;
-      if (activeEnv && activeEnv.trim().length > 0) {
-        try {
-          const envPath = path.resolve(composeDir, '.env');
-          fs.writeFileSync(envPath, activeEnv.trim() + '\n', 'utf-8');
-          await appendLogs(`[COMPOSE] Variáveis de ambiente gravadas em .env\n`);
-        } catch (e: any) {
-          await appendLogs(`[COMPOSE] Aviso ao gravar arquivo .env: ${e.message}\n`);
+      // Write .env and any env files declared in the compose file
+      const activeEnv = envVars || service.envVars || '';
+      const sanitizedLines: string[] = [];
+      for (const rawLine of activeEnv.split('\n')) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#')) {
+          sanitizedLines.push(rawLine);
+          continue;
         }
+        if (/^[A-Za-z_][A-Za-z0-9_.]*=/.test(line)) {
+          sanitizedLines.push(line);
+        } else {
+          await appendLogs(`[COMPOSE] Linha ignorada no .env por formato inválido (deve ser CHAVE=VALOR): "${line}"\n`);
+        }
+      }
+      const envContent = sanitizedLines.join('\n') + (sanitizedLines.length > 0 ? '\n' : '');
+
+      // Always write default .env at composeDir and workspace
+      const defaultEnvPath = path.resolve(composeDir, '.env');
+      fs.writeFileSync(defaultEnvPath, envContent, 'utf-8');
+      if (composeDir !== buildWorkspace) {
+        try {
+          fs.writeFileSync(path.resolve(buildWorkspace, '.env'), envContent, 'utf-8');
+        } catch {}
+      }
+      if (sanitizedLines.length > 0) {
+        await appendLogs(`[COMPOSE] Variáveis de ambiente gravadas em .env\n`);
+      }
+
+      // Check if the compose file expects specific env_file names (e.g. .env.production)
+      try {
+        const composeText = fs.readFileSync(composeFileAbs, 'utf-8');
+        const declaredEnvFiles = extractEnvFilePathsFromCompose(composeText);
+        for (const relEnv of declaredEnvFiles) {
+          // Ignore variable expansions like ${FOO} if unresolvable
+          if (relEnv.includes('${')) continue;
+          const targetEnvPath = path.resolve(composeDir, relEnv);
+          if (!fs.existsSync(targetEnvPath)) {
+            fs.mkdirSync(path.dirname(targetEnvPath), { recursive: true });
+            fs.writeFileSync(targetEnvPath, envContent, 'utf-8');
+            await appendLogs(`[COMPOSE] Arquivo de ambiente criado para suprir o compose: "${relEnv}"\n`);
+          }
+        }
+      } catch (e: any) {
+        await appendLogs(`[COMPOSE] Aviso ao verificar env_file do compose: ${e.message}\n`);
       }
 
       const dockerHostEnv = savedDockerHost || process.env.DOCKER_HOST;
@@ -343,7 +494,21 @@ async function processBuildJob(data: BuildJobData): Promise<void> {
       if (dockerHostEnv && !dockerHostEnv.includes('127.0.0.1')) {
         dockerArgs.push('-H', dockerHostEnv);
       }
-      dockerArgs.push('compose', '-p', projectName, '-f', composeFileAbs, 'up', '-d', '--build', '--remove-orphans');
+      dockerArgs.push('compose', '-p', projectName, '-f', composeFileAbs, 'up', '-d');
+      if (!isFastReload) {
+        dockerArgs.push('--build');
+      }
+      dockerArgs.push('--remove-orphans');
+
+      const parsedEnvMap: Record<string, string> = {};
+      for (const line of sanitizedLines) {
+        const eqIdx = line.indexOf('=');
+        if (eqIdx > 0) {
+          const k = line.slice(0, eqIdx).trim();
+          const v = line.slice(eqIdx + 1);
+          parsedEnvMap[k] = v;
+        }
+      }
 
       await appendLogs(`[COMPOSE] Executando: docker ${dockerArgs.join(' ')}\n`);
 
@@ -355,6 +520,7 @@ async function processBuildJob(data: BuildJobData): Promise<void> {
             cwd: composeDir,
             env: {
               ...process.env,
+              ...parsedEnvMap,
               ...(dockerHostEnv ? { DOCKER_HOST: dockerHostEnv } : {}),
             },
           }
@@ -489,7 +655,7 @@ async function processBuildJob(data: BuildJobData): Promise<void> {
       // -------------------------------------------------------------
       // INDIVIDUAL DOCKERFILE BUILD & DEPLOY
       // -------------------------------------------------------------
-      const dockerfileRelative = dockerfilePath || 'Dockerfile';
+      const dockerfileRelative = (dockerfilePath || 'Dockerfile').trim().replace(/^[/\\]+/, '');
       const dockerfileAbsolute = path.resolve(contextDir, dockerfileRelative);
 
       if (!fs.existsSync(dockerfileAbsolute)) {

@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 $InstallDir = "C:\stackorbit"
 $RepoRaw = "https://raw.githubusercontent.com/stackline-saas/stackorbit/master"
 $DefaultPort = 8088
-$AppVersion = "v0.1.0"
+$AppVersion = if ($env:APP_VERSION) { $env:APP_VERSION } else { "latest" }
 
 Write-Host ""
 Write-Host "  ███████╗████████╗ █████╗  ██████╗██╗  ██╗ ██████╗ ██████╗ ██████╗ ██╗████████╗" -ForegroundColor Cyan

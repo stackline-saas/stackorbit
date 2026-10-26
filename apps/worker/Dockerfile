@@ -28,7 +28,7 @@ FROM node:22-alpine AS runner
 
 WORKDIR /app
 
-RUN apk add --no-cache git docker-cli curl ca-certificates openssl
+RUN apk add --no-cache git docker-cli docker-cli-compose curl ca-certificates openssl
 
 ENV NODE_ENV=production
 

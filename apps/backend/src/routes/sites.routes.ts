@@ -258,13 +258,8 @@ router.post('/:id/publish', requireAuth, async (req: AuthenticatedRequest, res) 
     const service = await prisma.service.findUnique({ where: { id } });
     if (!service) return res.status(404).json({ error: 'Site não encontrado.' });
 
-    // Sincroniza todos os arquivos do site para o container
+    // Sincroniza todos os arquivos do site para o container e recarrega o Nginx
     await siteFilesService.syncFilesToContainer(id);
-
-    // Se for Nginx, envia sinal de reload
-    if (service.containerName) {
-      await dockerService.execCommand(service.containerName, ['nginx', '-s', 'reload']).catch(() => {});
-    }
 
     await logAudit({
       userId: req.user?.id,

@@ -1,25 +1,29 @@
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import AdmZip from 'adm-zip';
 import type { SiteFile } from '@stackorbit/shared';
 import { prisma } from '../db.js';
 import { parseServiceMetadata } from '../routes/services.routes.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+// __dirname é apps/backend/src/services -> sobe 2 níveis para apps/backend
+const backendRootDir = path.resolve(__dirname, '..', '..');
+
 export class SiteFilesService {
   /**
    * Obtém o caminho base no sistema de arquivos para os arquivos de um site ou serviço.
    */
   public getSiteRootDir(serviceId: string): string {
-    // Em produção Linux, usa /opt/stackorbit/data/sites/:id
-    // Em desenvolvimento ou Windows, usa ./apps/backend/data/sites/:id de forma consistente
-    const isInsideAppsBackend = process.cwd().endsWith('apps\\backend') || process.cwd().endsWith('apps/backend');
-    const projectRoot = isInsideAppsBackend ? path.resolve(process.cwd(), '..', '..') : process.cwd();
     const baseStorage =
       process.platform === 'win32'
-        ? path.resolve(projectRoot, 'apps', 'backend', 'data', 'sites')
-        : '/opt/stackorbit/data/sites';
+        ? path.resolve(backendRootDir, 'data', 'sites')
+        : (fsSync.existsSync('/opt/stackorbit/data/sites')
+            ? '/opt/stackorbit/data/sites'
+            : path.resolve(backendRootDir, 'data', 'sites'));
 
     const siteDir = path.join(baseStorage, serviceId);
     if (!fsSync.existsSync(siteDir)) {
@@ -41,7 +45,10 @@ export class SiteFilesService {
       const docRoot = meta.documentRoot || (isStatic ? '/usr/share/nginx/html' : '/var/www/html');
       const rootDir = this.getSiteRootDir(serviceId);
 
-      if (!fsSync.existsSync(rootDir)) return;
+      if (!fsSync.existsSync(rootDir)) {
+        console.warn(`[syncFilesToContainer] Diretório não existe: ${rootDir}`);
+        return;
+      }
 
       await new Promise<void>((resolve) => {
         const proc = spawn('docker', ['cp', `${rootDir}/.`, `${service.containerName}:${docRoot}/`], {
@@ -60,6 +67,17 @@ export class SiteFilesService {
           resolve();
         });
       });
+
+      // Recarrega o Nginx para atualizar cache e páginas estáticas imediatamente
+      if (isStatic) {
+        await new Promise<void>((resolve) => {
+          const reloadProc = spawn('docker', ['exec', service.containerName, 'nginx', '-s', 'reload'], {
+            shell: process.platform === 'win32',
+          });
+          reloadProc.on('close', () => resolve());
+          reloadProc.on('error', () => resolve());
+        });
+      }
     } catch (err: any) {
       console.warn(`Aviso ao sincronizar arquivos para o container do site ${serviceId}:`, err.message);
     }

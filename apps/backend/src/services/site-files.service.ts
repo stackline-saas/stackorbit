@@ -44,9 +44,21 @@ export class SiteFilesService {
       if (!fsSync.existsSync(rootDir)) return;
 
       await new Promise<void>((resolve) => {
-        const proc = spawn('docker', ['cp', `${rootDir}/.`, `${service.containerName}:${docRoot}/`]);
-        proc.on('close', () => resolve());
-        proc.on('error', () => resolve());
+        const proc = spawn('docker', ['cp', `${rootDir}/.`, `${service.containerName}:${docRoot}/`], {
+          shell: process.platform === 'win32',
+        });
+        let stderr = '';
+        proc.stderr?.on('data', (d) => { stderr += d.toString(); });
+        proc.on('close', (code) => {
+          if (code !== 0) {
+            console.warn(`[syncFilesToContainer] docker cp retornou código ${code}: ${stderr}`);
+          }
+          resolve();
+        });
+        proc.on('error', (err) => {
+          console.warn(`[syncFilesToContainer] Falha ao invocar docker cp:`, err.message);
+          resolve();
+        });
       });
     } catch (err: any) {
       console.warn(`Aviso ao sincronizar arquivos para o container do site ${serviceId}:`, err.message);

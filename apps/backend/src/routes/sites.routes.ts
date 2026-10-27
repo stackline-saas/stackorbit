@@ -395,6 +395,8 @@ const handleSaveContent = async (req: AuthenticatedRequest, res: any) => {
 };
 router.put('/:id/files/content', requireAuth, handleSaveContent);
 router.post('/:id/files/content', requireAuth, handleSaveContent);
+router.post('/:id/files', requireAuth, handleSaveContent);
+router.put('/:id/files', requireAuth, handleSaveContent);
 
 // Criar pasta explicitamente (mkdir)
 router.post('/:id/files/mkdir', requireAuth, async (req: AuthenticatedRequest, res: any) => {

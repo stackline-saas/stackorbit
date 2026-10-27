@@ -250,6 +250,42 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
   }
 });
 
+// 2.1 Publicar alterações do site no container
+router.post('/:id/publish', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const { id } = req.params;
+
+  try {
+    const service = await prisma.service.findUnique({ where: { id } });
+    if (!service) return res.status(404).json({ error: 'Site não encontrado.' });
+
+    // Sincroniza todos os arquivos do site para o container
+    await siteFilesService.syncFilesToContainer(id);
+
+    // Se for Nginx, envia sinal de reload
+    if (service.containerName) {
+      await dockerService.execCommand(service.containerName, ['nginx', '-s', 'reload']).catch(() => {});
+    }
+
+    await logAudit({
+      userId: req.user?.id,
+      userName: req.user?.name || 'Administrador',
+      action: 'SITE_PUBLISHED',
+      entityType: 'SERVICE',
+      entityId: service.id,
+      details: `Site ${service.name} publicado com sucesso no container ${service.containerName}`,
+    });
+
+    return res.json({
+      success: true,
+      publishedAt: new Date().toISOString(),
+      message: 'Site publicado e no ar com sucesso!',
+    });
+  } catch (err: any) {
+    console.error('Erro ao publicar site:', err);
+    return res.status(500).json({ error: err.message || 'Erro ao publicar site.' });
+  }
+});
+
 // 3. Obter detalhes e credenciais SFTP de um site
 router.get('/:id/sftp', requireAuth, async (req: AuthenticatedRequest, res) => {
   const { id } = req.params;

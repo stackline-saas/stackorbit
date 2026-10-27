@@ -32,6 +32,9 @@ import {
   Terminal,
   Code2,
   HardDrive,
+  Zap,
+  Rocket,
+  CheckCircle2,
 } from 'lucide-react';
 import type { Service, SiteFile } from '../../types/index.ts';
 import { SiteSFTPModal } from '../SiteSFTPModal.tsx';
@@ -63,6 +66,17 @@ export const SiteWebIDEView: React.FC = () => {
   const [editorTheme, setEditorTheme] = useState<'light' | 'vs-dark'>('light');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
+
+  // Status de Publicação ('idle' = No ar, 'pending' = Aguardando publicação, 'publishing' = Publicando)
+  const [publishStatus, setPublishStatus] = useState<'idle' | 'pending' | 'publishing'>('idle');
+  const [lastPublishedAt, setLastPublishedAt] = useState<string | null>(null);
+
+  // Auto-save com debounce (0 = manual, 1000 = 1s, 2000 = 2s, 5000 = 5s)
+  const [autoSaveDelay, setAutoSaveDelay] = useState<number>(() => {
+    const saved = localStorage.getItem('ide_autosave_delay');
+    return saved !== null ? parseInt(saved, 10) : 2000;
+  });
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Cursor position
   const [cursorPos, setCursorPos] = useState<{ line: number; col: number }>({ line: 1, col: 1 });
@@ -232,10 +246,9 @@ export const SiteWebIDEView: React.FC = () => {
     }
   };
 
-  // Salvar arquivo ativo
-  const handleSaveActiveFile = async () => {
-    const tab = openTabs.find((t) => t.path === activeTabPath);
-    if (!tab || !id) return;
+  // Função unificada para salvar conteúdo de um arquivo
+  const saveFileContent = async (filePath: string, content: string): Promise<boolean> => {
+    if (!id) return false;
 
     setIsSaving(true);
     try {
@@ -246,27 +259,108 @@ export const SiteWebIDEView: React.FC = () => {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          path: tab.path,
-          content: tab.content,
+          path: filePath,
+          content,
         }),
       });
 
       if (res.ok) {
         setOpenTabs((prev) =>
           prev.map((t) =>
-            t.path === tab.path ? { ...t, isDirty: false, initialContent: t.content } : t
+            t.path === filePath ? { ...t, isDirty: false, initialContent: content } : t
           )
         );
-        setSaveSuccessMessage(`"${tab.name}" salvo com sucesso!`);
-        setTimeout(() => setSaveSuccessMessage(null), 3000);
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Erro ao salvar o arquivo no container.');
+        setPublishStatus('pending');
+        return true;
       }
+      return false;
     } catch {
-      alert('Erro ao conectar com o servidor para salvar o arquivo.');
+      return false;
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Salvar arquivo ativo manualmente
+  const handleSaveActiveFile = async () => {
+    const tab = openTabs.find((t) => t.path === activeTabPath);
+    if (!tab) return;
+    const ok = await saveFileContent(tab.path, tab.content);
+    if (ok) {
+      setSaveSuccessMessage(`"${tab.name}" salvo! Aguardando publicação.`);
+      setTimeout(() => setSaveSuccessMessage(null), 3000);
+    } else {
+      alert('Erro ao salvar o arquivo.');
+    }
+  };
+
+  // Alteração de conteúdo no editor com Auto-save e Debounce
+  const handleContentChange = (newVal: string) => {
+    if (!activeTabPath) return;
+
+    setOpenTabs((prev) =>
+      prev.map((t) =>
+        t.path === activeTabPath
+          ? { ...t, content: newVal, isDirty: newVal !== t.initialContent }
+          : t
+      )
+    );
+
+    // Marca como alterado e aguardando publicação
+    setPublishStatus('pending');
+
+    // Se auto-save estiver ativo (> 0 ms), dispara o timer com debounce
+    if (autoSaveDelay > 0) {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+      const targetPath = activeTabPath;
+      autoSaveTimerRef.current = setTimeout(async () => {
+        const ok = await saveFileContent(targetPath, newVal);
+        if (ok) {
+          setSaveSuccessMessage('Auto-salvo (pronto para publicar)');
+          setTimeout(() => setSaveSuccessMessage(null), 2500);
+        }
+      }, autoSaveDelay);
+    }
+  };
+
+  // Publicar alterações no container
+  const handlePublish = async () => {
+    if (!id) return;
+    setPublishStatus('publishing');
+
+    // 1. Salva abas pendentes com alterações
+    const dirtyTabs = openTabs.filter((t) => t.isDirty);
+    for (const tab of dirtyTabs) {
+      await saveFileContent(tab.path, tab.content);
+    }
+
+    // 2. Chama endpoint de publicação
+    try {
+      const res = await fetch(`/api/sites/${id}/publish`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        const timeStr = new Date().toLocaleTimeString('pt-BR', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        });
+        setLastPublishedAt(timeStr);
+        setPublishStatus('idle');
+        setSaveSuccessMessage('Site publicado e no ar com sucesso!');
+        setTimeout(() => setSaveSuccessMessage(null), 4000);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Erro ao publicar site no container.');
+        setPublishStatus('pending');
+      }
+    } catch {
+      alert('Erro de conexão ao publicar o site.');
+      setPublishStatus('pending');
     }
   };
 
@@ -600,8 +694,30 @@ export const SiteWebIDEView: React.FC = () => {
           )}
         </div>
 
-        {/* Direita: Ações Rápidas (Salvar, SFTP, Tema) */}
+        {/* Direita: Ações Rápidas (Auto-Save, Salvar, Publicar, SFTP, Tema) */}
         <div className="flex items-center gap-2">
+          {/* Seletor de Auto-save com Debounce */}
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200/70 border border-slate-200 rounded-xl text-xs transition-colors">
+            <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+            <span className="text-[11px] text-slate-500 font-medium hidden sm:inline">Auto-save:</span>
+            <select
+              value={autoSaveDelay}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                setAutoSaveDelay(val);
+                localStorage.setItem('ide_autosave_delay', String(val));
+              }}
+              className="bg-transparent text-slate-800 font-bold focus:outline-none cursor-pointer text-xs"
+              title="Tempo de espera após parar de digitar para salvar automaticamente"
+            >
+              <option value={0}>Manual (Ctrl+S)</option>
+              <option value={1000}>1s (Rápido)</option>
+              <option value={2000}>2s (Recomendado)</option>
+              <option value={5000}>5s</option>
+            </select>
+          </div>
+
+          {/* Botão de Salvar Manual */}
           {activeTab && (
             <button
               type="button"
@@ -612,7 +728,7 @@ export const SiteWebIDEView: React.FC = () => {
                   ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/20'
                   : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-default'
               }`}
-              title="Salvar alterações no container (Ctrl+S)"
+              title="Salvar alterações no arquivo (Ctrl+S)"
             >
               {isSaving ? (
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -622,6 +738,42 @@ export const SiteWebIDEView: React.FC = () => {
               <span>Salvar</span>
             </button>
           )}
+
+          {/* Botão de Publicação (Aguardando Publicação vs Publicado no Ar) */}
+          <button
+            type="button"
+            onClick={handlePublish}
+            disabled={publishStatus === 'publishing'}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs ${
+              publishStatus === 'publishing'
+                ? 'bg-blue-600 text-white opacity-80 cursor-wait'
+                : publishStatus === 'pending'
+                ? 'bg-amber-500 hover:bg-amber-600 text-white ring-2 ring-amber-400/50 shadow-md animate-pulse'
+                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200'
+            }`}
+            title={
+              publishStatus === 'pending'
+                ? 'Existem alterações salvas aguardando publicação no container. Clique para publicar no ar.'
+                : 'O site está atualizado e publicado no container Docker.'
+            }
+          >
+            {publishStatus === 'publishing' ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <span>Publicando...</span>
+              </>
+            ) : publishStatus === 'pending' ? (
+              <>
+                <Rocket className="w-3.5 h-3.5 text-white" />
+                <span>Publicar Alterações</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>No Ar {lastPublishedAt ? `(${lastPublishedAt})` : ''}</span>
+              </>
+            )}
+          </button>
 
           {/* Modal SFTP */}
           <button
@@ -998,16 +1150,7 @@ export const SiteWebIDEView: React.FC = () => {
                   language={activeTab.language}
                   theme={editorTheme}
                   value={activeTab.content}
-                  onChange={(val) => {
-                    const newContent = val ?? '';
-                    setOpenTabs((prev) =>
-                      prev.map((t) =>
-                        t.path === activeTab.path
-                          ? { ...t, content: newContent, isDirty: newContent !== t.initialContent }
-                          : t
-                      )
-                    );
-                  }}
+                  onChange={(val) => handleContentChange(val ?? '')}
                   onMount={(editor) => {
                     editor.onDidChangeCursorPosition((e) => {
                       setCursorPos({

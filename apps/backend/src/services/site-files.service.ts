@@ -331,21 +331,24 @@ $serverSoftware = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache/PHP';
 
   /**
    * Salva o conteúdo de texto de um arquivo.
+   * Não sincroniza automaticamente para o container, respeitando o fluxo de rascunho / aguardando publicação.
    */
-  public async writeFile(serviceId: string, filePath: string, content: string): Promise<void> {
+  public async writeFile(serviceId: string, filePath: string, content: string, syncImmediately = false): Promise<void> {
     const fullPath = this.resolveSafePath(serviceId, filePath);
     const parentDir = path.dirname(fullPath);
     if (!fsSync.existsSync(parentDir)) {
       await fs.mkdir(parentDir, { recursive: true });
     }
     await fs.writeFile(fullPath, content, 'utf-8');
-    await this.syncFilesToContainer(serviceId);
+    if (syncImmediately) {
+      await this.syncFilesToContainer(serviceId);
+    }
   }
 
   /**
    * Cria um novo arquivo vazio.
    */
-  public async createFile(serviceId: string, filePath: string, initialContent: string = ''): Promise<void> {
+  public async createFile(serviceId: string, filePath: string, initialContent: string = '', syncImmediately = false): Promise<void> {
     const fullPath = this.resolveSafePath(serviceId, filePath);
     if (fsSync.existsSync(fullPath)) {
       throw new Error('Um arquivo ou pasta com este nome já existe.');
@@ -355,38 +358,44 @@ $serverSoftware = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache/PHP';
       await fs.mkdir(parentDir, { recursive: true });
     }
     await fs.writeFile(fullPath, initialContent, 'utf-8');
-    await this.syncFilesToContainer(serviceId);
+    if (syncImmediately) {
+      await this.syncFilesToContainer(serviceId);
+    }
   }
 
   /**
    * Cria uma nova pasta.
    */
-  public async createDirectory(serviceId: string, dirPath: string): Promise<void> {
+  public async createDirectory(serviceId: string, dirPath: string, syncImmediately = false): Promise<void> {
     const fullPath = this.resolveSafePath(serviceId, dirPath);
     if (fsSync.existsSync(fullPath)) {
       throw new Error('Já existe um item com este nome.');
     }
     await fs.mkdir(fullPath, { recursive: true });
-    await this.syncFilesToContainer(serviceId);
+    if (syncImmediately) {
+      await this.syncFilesToContainer(serviceId);
+    }
   }
 
   /**
    * Exclui um arquivo ou pasta recursivamente.
    */
-  public async deleteItem(serviceId: string, itemPath: string): Promise<void> {
+  public async deleteItem(serviceId: string, itemPath: string, syncImmediately = false): Promise<void> {
     const fullPath = this.resolveSafePath(serviceId, itemPath);
     const rootDir = this.getSiteRootDir(serviceId);
     if (fullPath === rootDir) {
       throw new Error('Não é permitido excluir o diretório raiz do site.');
     }
     await fs.rm(fullPath, { recursive: true, force: true });
-    await this.syncFilesToContainer(serviceId);
+    if (syncImmediately) {
+      await this.syncFilesToContainer(serviceId);
+    }
   }
 
   /**
    * Renomeia ou move um arquivo ou pasta.
    */
-  public async renameItem(serviceId: string, oldPath: string, newPath: string): Promise<void> {
+  public async renameItem(serviceId: string, oldPath: string, newPath: string, syncImmediately = false): Promise<void> {
     const src = this.resolveSafePath(serviceId, oldPath);
     const dst = this.resolveSafePath(serviceId, newPath);
     if (!fsSync.existsSync(src)) {
@@ -396,7 +405,9 @@ $serverSoftware = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache/PHP';
       throw new Error('Já existe um item no destino com esse nome.');
     }
     await fs.rename(src, dst);
-    await this.syncFilesToContainer(serviceId);
+    if (syncImmediately) {
+      await this.syncFilesToContainer(serviceId);
+    }
   }
 
   /**

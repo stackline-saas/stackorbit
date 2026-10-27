@@ -24,12 +24,14 @@ interface DatabasesViewProps {
   selectedProjectId?: string | null;
   projects?: Project[];
   mainDomain?: string;
+  onRefresh?: () => void;
 }
 
 export const DatabasesView: React.FC<DatabasesViewProps> = ({
   selectedProjectId,
   projects = [],
   mainDomain = 'bla.com.br',
+  onRefresh,
 }) => {
   const navigate = useNavigate();
   const [databases, setDatabases] = useState<Service[]>([]);

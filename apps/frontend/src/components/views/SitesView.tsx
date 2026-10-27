@@ -17,21 +17,25 @@ import {
   Sparkles,
   Server,
   Layers,
+  X,
 } from 'lucide-react';
 import type { Service, Project } from '../../types/index.ts';
 import { CreateSiteModal } from '../CreateSiteModal.tsx';
 import { SiteSFTPModal } from '../SiteSFTPModal.tsx';
+import { SiteFileManager } from '../SiteFileManager.tsx';
 
 interface SitesViewProps {
   selectedProjectId?: string | null;
   projects?: Project[];
   mainDomain?: string;
+  onRefresh?: () => void;
 }
 
 export const SitesView: React.FC<SitesViewProps> = ({
   selectedProjectId,
   projects = [],
   mainDomain = 'bla.com.br',
+  onRefresh,
 }) => {
   const navigate = useNavigate();
   const [sites, setSites] = useState<Service[]>([]);
@@ -42,6 +46,7 @@ export const SitesView: React.FC<SitesViewProps> = ({
   // Modais
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [sftpModalData, setSftpModalData] = useState<{ id: string; name: string } | null>(null);
+  const [fileManagerModalSite, setFileManagerModalSite] = useState<{ id: string; name: string } | null>(null);
 
   const loadSites = async () => {
     setIsLoading(true);
@@ -81,6 +86,7 @@ export const SitesView: React.FC<SitesViewProps> = ({
       });
       if (res.ok) {
         loadSites();
+        onRefresh?.();
       }
     } catch (err) {
       console.error('Erro ao excluir site:', err);
@@ -323,7 +329,7 @@ export const SitesView: React.FC<SitesViewProps> = ({
                     {/* Botão Gerenciador de Arquivos */}
                     <button
                       type="button"
-                      onClick={() => navigate(`/services/${site.id}?tab=files`)}
+                      onClick={() => setFileManagerModalSite({ id: site.id, name: site.name })}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold shadow-2xs transition-colors"
                       title="Gerenciador de Arquivos & Editor Web"
                     >
@@ -376,7 +382,10 @@ export const SitesView: React.FC<SitesViewProps> = ({
         <CreateSiteModal
           isOpen={isCreateModalOpen}
           onClose={() => setIsCreateModalOpen(false)}
-          onCreated={() => loadSites()}
+          onCreated={() => {
+            loadSites();
+            onRefresh?.();
+          }}
           mainDomain={mainDomain}
           projectId={selectedProjectId}
         />
@@ -390,6 +399,65 @@ export const SitesView: React.FC<SitesViewProps> = ({
           serviceId={sftpModalData.id}
           serviceName={sftpModalData.name}
         />
+      )}
+
+      {/* Modal Dedicado de Gerenciador de Arquivos & Editor Web */}
+      {fileManagerModalSite && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl h-[88vh] flex flex-col overflow-hidden">
+            {/* Header do Modal */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
+                  <FolderOpen className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <span>Gerenciador de Arquivos & Editor</span>
+                    <span className="text-xs font-mono font-bold px-2 py-0.5 bg-blue-100 text-blue-700 rounded-md">
+                      {fileManagerModalSite.name}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Navegue nas pastas, faça upload, extraia ZIPs e edite seus arquivos com syntax highlighting
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetId = fileManagerModalSite.id;
+                    setFileManagerModalSite(null);
+                    navigate(`/services/${targetId}?tab=files`);
+                  }}
+                  className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:text-blue-600 hover:bg-white border border-transparent hover:border-slate-200 rounded-xl transition-all flex items-center gap-1.5 shadow-2xs"
+                  title="Abrir como tela cheia na página do serviço"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Página do Serviço</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setFileManagerModalSite(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-xl transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Conteúdo do Gerenciador de Arquivos */}
+            <div className="flex-1 p-6 overflow-y-auto bg-slate-50/30">
+              <SiteFileManager
+                serviceId={fileManagerModalSite.id}
+                serviceName={fileManagerModalSite.name}
+              />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

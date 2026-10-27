@@ -48,6 +48,7 @@ temp/
 tmp/
 .temp/
 .data/
+apps/backend/data/
 cert/
 *.key
 *.pem

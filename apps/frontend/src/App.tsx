@@ -84,9 +84,35 @@ const ServiceDetailRouteWrapper: React.FC<ServiceDetailRouteWrapperProps> = ({
   const tabFromQuery = searchParams.get('tab') as any;
 
   const service = services.find((s) => s.id === id);
+  const [singleService, setSingleService] = useState<Service | null>(null);
+  const [isFetchingSingle, setIsFetchingSingle] = useState(false);
+  const [notFound, setNotFound] = useState(false);
 
-  if (!service) {
-    if (isRefreshing && services.length === 0) {
+  useEffect(() => {
+    if (!service && id) {
+      setIsFetchingSingle(true);
+      fetch(`/api/services/${id}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('dm_auth_token') || ''}` },
+      })
+        .then(async (res) => {
+          if (res.ok) {
+            const data = await res.json();
+            setSingleService(data);
+            setNotFound(false);
+            loadData();
+          } else {
+            setNotFound(true);
+          }
+        })
+        .catch(() => setNotFound(true))
+        .finally(() => setIsFetchingSingle(false));
+    }
+  }, [id, service, loadData]);
+
+  const activeService = service || singleService;
+
+  if (!activeService) {
+    if (isRefreshing || isFetchingSingle || (!notFound && !service)) {
       return (
         <div className="p-12 text-center bg-white rounded-xl border border-slate-200 shadow-xs">
           <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
@@ -114,10 +140,10 @@ const ServiceDetailRouteWrapper: React.FC<ServiceDetailRouteWrapperProps> = ({
 
   return (
     <ServiceDetailView
-      service={service}
-      allServices={services}
+      service={activeService}
+      allServices={services.some((s) => s.id === activeService.id) ? services : [activeService, ...services]}
       domains={domains}
-      initialTab={tabFromQuery || 'env'}
+      initialTab={tabFromQuery || 'containers'}
       onBack={() => navigate('/services')}
       onUpdateService={onSaveServiceDetail}
       onDeleteService={onDeleteService}
@@ -885,6 +911,7 @@ function MainApp() {
                       selectedProjectId={selectedProjectId}
                       projects={projects}
                       mainDomain={stats?.mainDomain || 'bla.com.br'}
+                      onRefresh={loadData}
                     />
                   ) : (
                     <Navigate to="/dashboard" replace />
@@ -901,6 +928,7 @@ function MainApp() {
                       selectedProjectId={selectedProjectId}
                       projects={projects}
                       mainDomain={stats?.mainDomain || 'bla.com.br'}
+                      onRefresh={loadData}
                     />
                   ) : (
                     <Navigate to="/dashboard" replace />

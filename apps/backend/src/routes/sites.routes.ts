@@ -339,8 +339,8 @@ router.get('/:id/files/content', requireAuth, async (req: AuthenticatedRequest, 
   }
 });
 
-// 7. Salvar conteúdo de arquivo editado
-router.put('/:id/files/content', requireAuth, async (req: AuthenticatedRequest, res) => {
+// 7. Salvar conteúdo de arquivo editado (suporta PUT e POST)
+const handleSaveContent = async (req: AuthenticatedRequest, res: any) => {
   const { id } = req.params;
   const { path: filePath, content } = req.body;
 
@@ -353,6 +353,25 @@ router.put('/:id/files/content', requireAuth, async (req: AuthenticatedRequest, 
     return res.json({ success: true, message: 'Arquivo salvo com sucesso.' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Erro ao salvar arquivo.' });
+  }
+};
+router.put('/:id/files/content', requireAuth, handleSaveContent);
+router.post('/:id/files/content', requireAuth, handleSaveContent);
+
+// Criar pasta explicitamente (mkdir)
+router.post('/:id/files/mkdir', requireAuth, async (req: AuthenticatedRequest, res: any) => {
+  const { id } = req.params;
+  const { path: dirPath } = req.body;
+
+  if (!dirPath) {
+    return res.status(400).json({ error: 'Caminho do diretório é obrigatório.' });
+  }
+
+  try {
+    await siteFilesService.createDirectory(id, dirPath);
+    return res.json({ success: true, message: 'Diretório criado com sucesso.' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Erro ao criar diretório.' });
   }
 });
 

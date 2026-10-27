@@ -912,10 +912,10 @@ export const SiteWebIDEView: React.FC = () => {
             PAINEL PRINCIPAL: ABAS E EDITOR MONACO (ESTILO VS CODE)
            ======================================================== */}
         <main className="flex-1 flex flex-col min-w-0 bg-white overflow-hidden">
-          {/* BARRA DE ABAS ESTILO VS CODE */}
-          <div className="h-10 bg-slate-100 border-b border-slate-200 flex items-center px-2 gap-1 overflow-x-auto no-scrollbar shrink-0">
+          {/* BARRA DE ABAS ESTILO VS CODE (FLAT, SEM ROUNDED) */}
+          <div className="h-9 bg-slate-100 border-b border-slate-200 flex items-stretch px-0 overflow-x-auto no-scrollbar shrink-0">
             {openTabs.length === 0 ? (
-              <span className="text-xs text-slate-400 px-3 py-1 font-mono">Nenhum arquivo aberto</span>
+              <span className="text-xs text-slate-400 px-3 py-2 font-mono flex items-center">Nenhum arquivo aberto</span>
             ) : (
               openTabs.map((tab) => {
                 const isActive = activeTabPath === tab.path;
@@ -923,10 +923,10 @@ export const SiteWebIDEView: React.FC = () => {
                   <div
                     key={tab.path}
                     onClick={() => setActiveTabPath(tab.path)}
-                    className={`group flex items-center gap-2 px-3 py-1.5 rounded-t-lg text-xs font-semibold transition-all border-t-2 shrink-0 cursor-pointer max-w-[220px] ${
+                    className={`group flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold transition-all border-r border-slate-200 border-t-2 shrink-0 cursor-pointer max-w-[220px] select-none ${
                       isActive
-                        ? 'bg-white text-slate-900 border-blue-600 font-bold shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 border-transparent'
+                        ? 'bg-white text-slate-900 border-t-blue-600 font-bold border-b border-b-white -mb-px'
+                        : 'bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 border-t-transparent'
                     }`}
                   >
                     <FileCode className="w-3.5 h-3.5 text-blue-600 shrink-0" />
@@ -956,7 +956,7 @@ export const SiteWebIDEView: React.FC = () => {
                 setNewItemName('');
                 setNewFileDialog(true);
               }}
-              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-md transition-colors ml-1"
+              className="flex items-center px-2.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 transition-colors border-r border-slate-200"
               title="Criar novo arquivo"
             >
               <Plus className="w-4 h-4" />

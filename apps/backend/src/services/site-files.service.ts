@@ -50,9 +50,24 @@ export class SiteFilesService {
         return;
       }
 
+      // Determina o DOCKER_HOST correto para alcançar o container do serviço
+      let dockerHost = process.env.DOCKER_HOST || 'ssh://vmuniz@192.168.0.7';
+      if (service.dockerHostId) {
+        const host = await prisma.dockerHost.findUnique({ where: { id: service.dockerHostId } });
+        if (host?.endpointUrl) {
+          dockerHost = host.endpointUrl;
+        }
+      }
+
+      const spawnEnv = {
+        ...process.env,
+        DOCKER_HOST: dockerHost,
+      };
+
       await new Promise<void>((resolve) => {
         const proc = spawn('docker', ['cp', `${rootDir}/.`, `${service.containerName}:${docRoot}/`], {
           shell: process.platform === 'win32',
+          env: spawnEnv,
         });
         let stderr = '';
         proc.stderr?.on('data', (d) => { stderr += d.toString(); });
@@ -73,6 +88,7 @@ export class SiteFilesService {
         await new Promise<void>((resolve) => {
           const reloadProc = spawn('docker', ['exec', service.containerName, 'nginx', '-s', 'reload'], {
             shell: process.platform === 'win32',
+            env: spawnEnv,
           });
           reloadProc.on('close', () => resolve());
           reloadProc.on('error', () => resolve());

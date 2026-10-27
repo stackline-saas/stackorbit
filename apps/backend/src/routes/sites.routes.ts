@@ -200,6 +200,8 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
         binds: [volumeBind],
       });
       await prisma.service.update({ where: { id: service.id }, data: { containerId, volumes: volumeBind } });
+      // Sincroniza arquivos iniciais para o container
+      await siteFilesService.syncFilesToContainer(service.id);
     } catch (e: any) {
       console.warn(`Aviso no deploy do container do site ${service.id}:`, e.message);
     }
@@ -448,6 +450,8 @@ router.post('/:id/files/upload', requireAuth, upload.array('files'), async (req:
       await fs.copyFile(file.path, destination);
       await fs.unlink(file.path).catch(() => {});
     }
+
+    await siteFilesService.syncFilesToContainer(id);
 
     return res.json({
       success: true,

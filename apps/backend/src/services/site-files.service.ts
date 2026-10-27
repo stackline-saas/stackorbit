@@ -1,8 +1,11 @@
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import AdmZip from 'adm-zip';
 import type { SiteFile } from '@stackorbit/shared';
+import { prisma } from '../db.js';
+import { parseServiceMetadata } from '../routes/services.routes.js';
 
 export class SiteFilesService {
   /**
@@ -10,10 +13,12 @@ export class SiteFilesService {
    */
   public getSiteRootDir(serviceId: string): string {
     // Em produção Linux, usa /opt/stackorbit/data/sites/:id
-    // Em desenvolvimento ou Windows, usa ./data/sites/:id
+    // Em desenvolvimento ou Windows, usa ./apps/backend/data/sites/:id de forma consistente
+    const isInsideAppsBackend = process.cwd().endsWith('apps\\backend') || process.cwd().endsWith('apps/backend');
+    const projectRoot = isInsideAppsBackend ? path.resolve(process.cwd(), '..', '..') : process.cwd();
     const baseStorage =
       process.platform === 'win32'
-        ? path.resolve(process.cwd(), 'data', 'sites')
+        ? path.resolve(projectRoot, 'apps', 'backend', 'data', 'sites')
         : '/opt/stackorbit/data/sites';
 
     const siteDir = path.join(baseStorage, serviceId);
@@ -21,6 +26,31 @@ export class SiteFilesService {
       fsSync.mkdirSync(siteDir, { recursive: true });
     }
     return siteDir;
+  }
+
+  /**
+   * Sincroniza automaticamente os arquivos locais do site com o container em execução.
+   */
+  public async syncFilesToContainer(serviceId: string): Promise<void> {
+    try {
+      const service = await prisma.service.findUnique({ where: { id: serviceId } });
+      if (!service || !service.containerName) return;
+
+      const { meta } = parseServiceMetadata(service.notes);
+      const isStatic = (service.notes || '').toLowerCase().includes('site estático') || meta.siteType === 'STATIC';
+      const docRoot = meta.documentRoot || (isStatic ? '/usr/share/nginx/html' : '/var/www/html');
+      const rootDir = this.getSiteRootDir(serviceId);
+
+      if (!fsSync.existsSync(rootDir)) return;
+
+      await new Promise<void>((resolve) => {
+        const proc = spawn('docker', ['cp', `${rootDir}/.`, `${service.containerName}:${docRoot}/`]);
+        proc.on('close', () => resolve());
+        proc.on('error', () => resolve());
+      });
+    } catch (err: any) {
+      console.warn(`Aviso ao sincronizar arquivos para o container do site ${serviceId}:`, err.message);
+    }
   }
 
   /**
@@ -263,6 +293,7 @@ $serverSoftware = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache/PHP';
       await fs.mkdir(parentDir, { recursive: true });
     }
     await fs.writeFile(fullPath, content, 'utf-8');
+    await this.syncFilesToContainer(serviceId);
   }
 
   /**
@@ -278,6 +309,7 @@ $serverSoftware = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache/PHP';
       await fs.mkdir(parentDir, { recursive: true });
     }
     await fs.writeFile(fullPath, initialContent, 'utf-8');
+    await this.syncFilesToContainer(serviceId);
   }
 
   /**
@@ -289,6 +321,7 @@ $serverSoftware = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache/PHP';
       throw new Error('Já existe um item com este nome.');
     }
     await fs.mkdir(fullPath, { recursive: true });
+    await this.syncFilesToContainer(serviceId);
   }
 
   /**
@@ -301,6 +334,7 @@ $serverSoftware = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache/PHP';
       throw new Error('Não é permitido excluir o diretório raiz do site.');
     }
     await fs.rm(fullPath, { recursive: true, force: true });
+    await this.syncFilesToContainer(serviceId);
   }
 
   /**
@@ -316,6 +350,7 @@ $serverSoftware = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache/PHP';
       throw new Error('Já existe um item no destino com esse nome.');
     }
     await fs.rename(src, dst);
+    await this.syncFilesToContainer(serviceId);
   }
 
   /**
@@ -332,6 +367,7 @@ $serverSoftware = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache/PHP';
     const zip = new AdmZip(zipFullPath);
     zip.extractAllTo(targetDir, true);
     const entries = zip.getEntries();
+    await this.syncFilesToContainer(serviceId);
     return { extractedCount: entries.length };
   }
 

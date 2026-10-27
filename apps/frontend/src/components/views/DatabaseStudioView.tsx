@@ -56,7 +56,7 @@ export const DatabaseStudioView: React.FC = () => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   // Carrega serviço e schema
-  const loadDatabase = async () => {
+  const loadDatabase = async (targetDb?: string) => {
     if (!id) return;
     setIsLoading(true);
     setError(null);
@@ -78,7 +78,8 @@ export const DatabaseStudioView: React.FC = () => {
       }
 
       // 2. Carrega catálogo do banco relacional
-      const catRes = await fetch(`/api/databases/${id}/schema`, {
+      const dbQuery = targetDb ? `?db=${encodeURIComponent(targetDb)}` : '';
+      const catRes = await fetch(`/api/databases/${id}/schema${dbQuery}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('dm_auth_token') || ''}` },
       });
       if (!catRes.ok) {
@@ -90,6 +91,8 @@ export const DatabaseStudioView: React.FC = () => {
       setCatalog(catData);
       if (catData.tables.length > 0) {
         setSelectedTable(catData.tables[0]);
+      } else {
+        setSelectedTable(null);
       }
     } catch (err: any) {
       setError(err.message);
@@ -107,7 +110,8 @@ export const DatabaseStudioView: React.FC = () => {
     if (!id || !tableName) return;
     setIsLoadingData(true);
     try {
-      const res = await fetch(`/api/databases/${id}/table-data?table=${encodeURIComponent(tableName)}&page=${page}&limit=50`, {
+      const dbParam = catalog?.databaseName ? `&db=${encodeURIComponent(catalog.databaseName)}` : '';
+      const res = await fetch(`/api/databases/${id}/table-data?table=${encodeURIComponent(tableName)}&page=${page}&limit=50${dbParam}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('dm_auth_token') || ''}` },
       });
       if (res.ok) {
@@ -139,7 +143,10 @@ export const DatabaseStudioView: React.FC = () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${localStorage.getItem('dm_auth_token') || ''}`,
         },
-        body: JSON.stringify({ query: sqlQuery }),
+        body: JSON.stringify({
+          query: sqlQuery,
+          db: catalog?.databaseName,
+        }),
       });
 
       const data = await res.json();
@@ -223,16 +230,35 @@ export const DatabaseStudioView: React.FC = () => {
                 {catalog?.version?.split(',')[0]}
               </span>
             </div>
-            <p className="text-xs text-slate-500 font-mono mt-0.5">
-              Banco: <strong className="text-slate-700">{catalog?.databaseName}</strong> • {catalog?.tables.length || 0} tabelas • Porta :{service?.internalPort || 5432}
-            </p>
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 font-mono mt-0.5">
+              <span>Banco:</span>
+              {catalog?.availableDatabases && catalog.availableDatabases.length > 1 ? (
+                <select
+                  value={catalog.databaseName}
+                  onChange={(e) => loadDatabase(e.target.value)}
+                  className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-blue-700 border border-slate-300 rounded-md font-mono font-bold cursor-pointer"
+                >
+                  {catalog.availableDatabases.map((dbName) => (
+                    <option key={dbName} value={dbName}>
+                      {dbName}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <strong className="text-slate-700">{catalog?.databaseName}</strong>
+              )}
+              <span>•</span>
+              <span>{catalog?.tables.length || 0} tabelas</span>
+              <span>•</span>
+              <span>Porta :{service?.internalPort || 5432}</span>
+            </div>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={loadDatabase}
+            onClick={() => loadDatabase(catalog?.databaseName)}
             className="p-2.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-xl text-xs font-semibold shadow-2xs transition-all"
             title="Recarregar catálogo"
           >

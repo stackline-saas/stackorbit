@@ -63,9 +63,10 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res) => {
 // 2. Obter catálogo e schema do banco (Tabelas, Colunas, Tipos, PKs, FKs, Views, Funções)
 router.get('/:id/schema', requireAuth, async (req: AuthenticatedRequest, res) => {
   const { id } = req.params;
+  const requestedDb = req.query.db as string | undefined;
 
   try {
-    const catalog = await databaseInspectorService.getDatabaseCatalog(id);
+    const catalog = await databaseInspectorService.getDatabaseCatalog(id, requestedDb);
     return res.json(catalog);
   } catch (err: any) {
     console.error(`Erro ao inspecionar schema do banco ${id}:`, err);
@@ -79,13 +80,14 @@ router.get('/:id/table-data', requireAuth, async (req: AuthenticatedRequest, res
   const tableName = req.query.table as string;
   const page = parseInt((req.query.page as string) || '1', 10);
   const limit = parseInt((req.query.limit as string) || '50', 10);
+  const databaseName = req.query.db as string | undefined;
 
   if (!tableName) {
     return res.status(400).json({ error: 'Parâmetro "table" é obrigatório.' });
   }
 
   try {
-    const data = await databaseInspectorService.getTableData(id, tableName, page, limit);
+    const data = await databaseInspectorService.getTableData(id, tableName, page, limit, databaseName);
     return res.json(data);
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Erro ao carregar dados da tabela.' });
@@ -95,14 +97,14 @@ router.get('/:id/table-data', requireAuth, async (req: AuthenticatedRequest, res
 // 4. Executar consulta SQL no Console SQL
 router.post('/:id/query', requireAuth, async (req: AuthenticatedRequest, res) => {
   const { id } = req.params;
-  const { query: querySql } = req.body;
+  const { query: querySql, db: databaseName } = req.body;
 
   if (!querySql || typeof querySql !== 'string') {
     return res.status(400).json({ error: 'Query SQL é obrigatória.' });
   }
 
   try {
-    const result = await databaseInspectorService.executeSqlQuery(id, querySql);
+    const result = await databaseInspectorService.executeSqlQuery(id, querySql, databaseName);
     return res.json(result);
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'Erro ao executar consulta SQL.' });

@@ -208,6 +208,7 @@ export interface DatabaseCatalog {
   tables: DatabaseTable[];
   views: string[];
   functions: string[];
+  availableDatabases?: string[];
 }
 
 export interface RedisKeyInfo {

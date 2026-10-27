@@ -209,14 +209,16 @@ export class DockerService {
 
   public async execCommand(
     nameOrId: string,
-    command: string,
+    command: string | string[],
     shell = '/bin/sh'
   ): Promise<{ output: string; exitCode: number; executionTimeMs: number }> {
     const startTime = Date.now();
     const container = this.docker.getContainer(nameOrId);
 
+    const execCmd = Array.isArray(command) ? command : [shell, '-c', command];
+
     const exec = await container.exec({
-      Cmd: [shell, '-c', command],
+      Cmd: execCmd,
       AttachStdout: true,
       AttachStderr: true,
     });

@@ -60,6 +60,8 @@ export interface Service {
     sftpUser?: string;
     sftpPassword?: string;
     sftpPort?: number;
+    hasPendingChanges?: boolean;
+    lastPublishedAt?: string;
   };
 }
 

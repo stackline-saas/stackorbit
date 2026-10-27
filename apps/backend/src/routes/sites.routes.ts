@@ -57,12 +57,21 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res) => {
     });
 
     // Filtra serviços que são sites (marcador no metadata ou templates de sites)
-    const siteServices = allServices.filter((s) => {
-      const { meta } = parseServiceMetadata(s.notes);
-      if (meta.isSite) return true;
-      const lower = (s.notes || '').toLowerCase();
-      return lower.includes('site estático') || lower.includes('site php') || lower.includes('wordpress') || lower.includes('prestashop');
-    });
+    const siteServices = allServices
+      .filter((s) => {
+        const { meta } = parseServiceMetadata(s.notes);
+        if (meta.isSite) return true;
+        const lower = (s.notes || '').toLowerCase();
+        return lower.includes('site estático') || lower.includes('site php') || lower.includes('wordpress') || lower.includes('prestashop');
+      })
+      .map((s) => {
+        const { userNotes, meta } = parseServiceMetadata(s.notes);
+        return {
+          ...s,
+          notes: userNotes,
+          meta,
+        };
+      });
 
     return res.json(siteServices);
   } catch (err: any) {

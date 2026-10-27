@@ -271,6 +271,15 @@ export const SitesView: React.FC<SitesViewProps> = ({
                     </span>
 
                     <div className="flex items-center gap-1.5">
+                      {site.meta?.hasPendingChanges ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-md flex items-center gap-1 animate-pulse" title="Existem alterações salvas aguardando publicação no container">
+                          ● Aguardando Publicação
+                        </span>
+                      ) : site.meta?.lastPublishedAt ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md flex items-center gap-1" title={`Publicado em ${new Date(site.meta.lastPublishedAt).toLocaleString('pt-BR')}`}>
+                          ✓ No Ar ({new Date(site.meta.lastPublishedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })})
+                        </span>
+                      ) : null}
                       {badge.hasDb && (
                         <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md flex items-center gap-1">
                           <Database className="w-2.5 h-2.5" /> MariaDB

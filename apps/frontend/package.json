@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
+    "@monaco-editor/react": "^4.7.0",
     "@stackorbit/shared": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.1.1",
@@ -27,6 +28,7 @@
     "yaml": "^2.9.1"
   },
   "devDependencies": {
+    "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -34,7 +36,6 @@
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
-    "typescript": "^7.0.2",
-    "@types/express": "^4.17.21"
+    "typescript": "^7.0.2"
   }
 }

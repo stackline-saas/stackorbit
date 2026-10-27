@@ -35,6 +35,7 @@ import { CreateServiceView } from './components/views/CreateServiceView.tsx';
 import { SitesView } from './components/views/SitesView.tsx';
 import { DatabasesView } from './components/views/DatabasesView.tsx';
 import { DatabaseStudioView } from './components/views/DatabaseStudioView.tsx';
+import { SiteWebIDEView } from './components/views/SiteWebIDEView.tsx';
 import {
   ServiceModal,
   DomainModal,
@@ -730,6 +731,8 @@ function MainApp() {
 
   const enableBetaFeatures = stats?.enableBetaFeatures ?? (import.meta.env.DEV ? true : false);
 
+  const isIdePage = location.pathname.startsWith('/sites/') && location.pathname.includes('/files');
+
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
       {/* Sidebar Navigation */}
@@ -750,18 +753,40 @@ function MainApp() {
 
       {/* Main Viewport */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top Header */}
-        <Header
-          currentTab={currentTab}
-          onRefresh={loadData}
-          isRefreshing={isRefreshing}
-          onApplyTraefik={handleApplyTraefik}
-          isApplyingTraefik={isApplyingTraefik}
-        />
+        {/* Top Header (oculto quando estiver na Web IDE de tela cheia) */}
+        {!isIdePage && (
+          <Header
+            currentTab={currentTab}
+            onRefresh={loadData}
+            isRefreshing={isRefreshing}
+            onApplyTraefik={handleApplyTraefik}
+            isApplyingTraefik={isApplyingTraefik}
+          />
+        )}
 
         {/* View Content Area with Declarative Routing */}
-        <main className={`flex-1 overflow-y-auto ${location.pathname.startsWith('/services/') || location.pathname.startsWith('/settings') || location.pathname.startsWith('/databases/') ? 'p-4 md:p-6' : 'p-6'}`}>
-          <div className={location.pathname.startsWith('/services/') || location.pathname.startsWith('/settings') || location.pathname.startsWith('/databases/') ? 'w-full' : 'max-w-7xl mx-auto'}>
+        <main
+          className={`flex-1 ${
+            isIdePage
+              ? 'p-0 overflow-hidden'
+              : location.pathname.startsWith('/services/') ||
+                location.pathname.startsWith('/settings') ||
+                location.pathname.startsWith('/databases/')
+              ? 'p-4 md:p-6 overflow-y-auto'
+              : 'p-6 overflow-y-auto'
+          }`}
+        >
+          <div
+            className={
+              isIdePage
+                ? 'w-full h-full'
+                : location.pathname.startsWith('/services/') ||
+                  location.pathname.startsWith('/settings') ||
+                  location.pathname.startsWith('/databases/')
+                ? 'w-full'
+                : 'max-w-7xl mx-auto'
+            }
+          >
             <ErrorBoundary>
               <Routes>
                 {/* Home & Login Redirects */}
@@ -913,6 +938,16 @@ function MainApp() {
                       mainDomain={stats?.mainDomain || 'bla.com.br'}
                       onRefresh={loadData}
                     />
+                  ) : (
+                    <Navigate to="/dashboard" replace />
+                  )
+                }
+              />
+              <Route
+                path="/sites/:id/files"
+                element={
+                  enableBetaFeatures ? (
+                    <SiteWebIDEView />
                   ) : (
                     <Navigate to="/dashboard" replace />
                   )

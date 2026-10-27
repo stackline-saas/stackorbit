@@ -43,13 +43,17 @@ export interface Service {
   projectId?: string | null;
   project?: { id: string; name: string; slug: string; type: string } | null;
   dockerHostId?: string | null;
-  dockerHost?: { id: string; name: string; status: string; type: string } | null;
+  dockerHost?: { id: string; name: string; status: string; type: string; isSwarmManager?: boolean } | null;
+  isSwarm?: boolean;
   meta?: {
     composeProject?: string;
     linkedContainers?: string[];
     gitToken?: string;
     buildContext?: string;
     buildArgs?: Record<string, string>;
+    primaryContainer?: string;
+    primaryPort?: number;
+    instanceEnvs?: Record<string, string>;
   };
 }
 

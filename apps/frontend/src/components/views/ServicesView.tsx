@@ -19,6 +19,8 @@ import {
   RefreshCw,
   Server,
   Settings2,
+  Layers,
+  Box,
 } from 'lucide-react';
 import type { Service } from '../../types/index.ts';
 
@@ -264,6 +266,23 @@ export const ServicesView: React.FC<ServicesViewProps> = ({
                             >
                               <Server className="w-2.5 h-2.5 text-slate-400" />
                               <span>{svc.dockerHost.name}</span>
+                            </span>
+                          )}
+                          {svc.isSwarm ? (
+                            <span
+                              className="text-[10px] text-purple-700 font-semibold px-1.5 py-0.2 bg-purple-50 border border-purple-200 rounded flex items-center gap-1 shadow-2xs"
+                              title="Stack gerenciada em Modo Docker Swarm (VIP Overlay Load Balancer)"
+                            >
+                              <Layers className="w-2.5 h-2.5 text-purple-600" />
+                              <span>Swarm</span>
+                            </span>
+                          ) : (
+                            <span
+                              className="text-[10px] text-slate-600 font-medium px-1.5 py-0.2 bg-slate-50 border border-slate-200 rounded flex items-center gap-1"
+                              title="Container Standalone / Docker Compose"
+                            >
+                              <Box className="w-2.5 h-2.5 text-slate-400" />
+                              <span>Standalone</span>
                             </span>
                           )}
                           {svc.containerCount && svc.containerCount > 1 && (

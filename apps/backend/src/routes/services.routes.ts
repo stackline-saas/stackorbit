@@ -2,6 +2,8 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { prisma, logAudit } from '../db.js';
 import { dockerService } from '../services/docker.service.js';
+import { dockerHostManager } from '../services/docker-host-manager.js';
+import { swarmService } from '../services/swarm.service.js';
 import { traefikService } from '../services/traefik.service.js';
 import { queueService } from '../services/queue.service.js';
 import { resolveGitToken } from '../services/git-token.service.js';
@@ -10,7 +12,7 @@ import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.middl
 const router = Router();
 const CONTAINER_NAME_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
 
-interface ServiceMetadata {
+export interface ServiceMetadata {
   composeProject?: string;
   linkedContainers?: string[];
   gitToken?: string;
@@ -19,6 +21,7 @@ interface ServiceMetadata {
   buildArgs?: Record<string, string>;
   primaryContainer?: string;
   primaryPort?: number;
+  instanceEnvs?: Record<string, string>;
 }
 
 export function parseServiceMetadata(notes?: string | null): { userNotes: string; meta: ServiceMetadata } {
@@ -115,7 +118,7 @@ router.get('/', requireAuth, async (req, res) => {
       include: {
         domains: true,
         project: { select: { id: true, name: true, slug: true, type: true } },
-        dockerHost: { select: { id: true, name: true, status: true, type: true } },
+        dockerHost: { select: { id: true, name: true, status: true, type: true, isSwarmManager: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -130,8 +133,10 @@ router.get('/', requireAuth, async (req, res) => {
     const enriched = services.map((svc) => {
       const matched = matchContainersForService(svc, allContainers);
       const { userNotes, meta } = parseServiceMetadata(svc.notes);
+      const isSwarm = svc.project?.type === 'SWARM' || Boolean((svc.dockerHost as any)?.isSwarmManager);
       return {
         ...svc,
+        isSwarm,
         notes: userNotes,
         meta: {
           ...meta,
@@ -380,15 +385,22 @@ router.get('/:id', requireAuth, async (req, res) => {
   try {
     const service = await prisma.service.findUnique({
       where: { id: req.params.id },
-      include: { domains: true, buildLogsList: { take: 5, orderBy: { startedAt: 'desc' } } },
+      include: {
+        domains: true,
+        project: { select: { id: true, name: true, slug: true, type: true } },
+        dockerHost: { select: { id: true, name: true, status: true, type: true, isSwarmManager: true } },
+        buildLogsList: { take: 5, orderBy: { startedAt: 'desc' } },
+      },
     });
 
     if (!service) {
       return res.status(404).json({ error: 'Serviço não encontrado.' });
     }
     const { userNotes, meta } = parseServiceMetadata(service.notes);
+    const isSwarm = service.project?.type === 'SWARM' || Boolean((service.dockerHost as any)?.isSwarmManager);
     return res.json({
       ...service,
+      isSwarm,
       notes: userNotes,
       userNotes,
       meta,
@@ -1290,10 +1302,45 @@ router.post('/:id/scale', requireAuth, async (req: AuthenticatedRequest, res) =>
   }
 
   try {
-    const service = await prisma.service.findUnique({ where: { id: req.params.id } });
+    const service = await prisma.service.findUnique({
+      where: { id: req.params.id },
+      include: {
+        project: true,
+        dockerHost: true,
+      },
+    });
     if (!service) return res.status(404).json({ error: 'Serviço não encontrado.' });
 
-    const allContainers = await dockerService.listContainers();
+    const isSwarm = service.project?.type === 'SWARM' || Boolean((service.dockerHost as any)?.isSwarmManager);
+    if (isSwarm) {
+      await swarmService.scaleSwarmService(
+        service.dockerHostId,
+        composeService,
+        numReplicas
+      );
+
+      await logAudit({
+        userId: req.user?.id,
+        userName: req.user?.name || 'Administrador',
+        action: 'SERVICE_SCALE_SWARM',
+        entityType: 'SERVICE',
+        entityId: service.id,
+        details: `Componente Swarm "${composeService}" escalado para ${numReplicas} réplica(s) no cluster Swarm da stack "${service.name}".`,
+        ipAddress: req.ip,
+      });
+
+      return res.json({
+        success: true,
+        isSwarm: true,
+        composeService,
+        replicas: numReplicas,
+        added: [],
+        removed: [],
+        current: [],
+      });
+    }
+
+    const allContainers = await dockerService.listContainers(service.dockerHostId);
     const matched = matchContainersForService(service, allContainers);
     const primary = matched.find((c) => c.name === service.containerName) || matched[0];
     const project = primary?.composeProject || null;
@@ -1395,6 +1442,292 @@ router.post('/:id/scale', requireAuth, async (req: AuthenticatedRequest, res) =>
     });
   } catch (err: any) {
     return res.status(500).json({ error: `Falha ao escalar serviço: ${err.message}` });
+  }
+});
+
+// Helper to parse key-value lines
+function parseEnvStringToMap(str?: string | null): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!str) return result;
+  str.split('\n').forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const idx = trimmed.indexOf('=');
+    if (idx > 0) {
+      result[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim();
+    }
+  });
+  return result;
+}
+
+// 13. Obter Variáveis de Ambiente de uma Instância Individual
+router.get('/:id/instances/:containerName/env', requireAuth, async (req, res) => {
+  try {
+    const service = await prisma.service.findUnique({ where: { id: req.params.id } });
+    if (!service) return res.status(404).json({ error: 'Serviço não encontrado.' });
+
+    const containerName = req.params.containerName;
+    const { meta } = parseServiceMetadata(service.notes);
+    const instanceEnvsMap = meta.instanceEnvs || {};
+    const instanceEnvStr = instanceEnvsMap[containerName] || '';
+
+    let runningEnvs: Record<string, string> = {};
+    try {
+      const docker = await dockerHostManager.getClientForHost(service.dockerHostId);
+      const inspect = await docker.getContainer(containerName).inspect();
+      if (inspect.Config?.Env) {
+        inspect.Config.Env.forEach((line: string) => {
+          const idx = line.indexOf('=');
+          if (idx > 0) {
+            runningEnvs[line.slice(0, idx).trim()] = line.slice(idx + 1);
+          }
+        });
+      }
+    } catch {}
+
+    const baseEnvStr = service.envVars || '';
+    const baseMap = parseEnvStringToMap(baseEnvStr);
+    const instanceMap = parseEnvStringToMap(instanceEnvStr);
+    const effectiveMap = { ...baseMap, ...instanceMap };
+
+    return res.json({
+      containerName,
+      baseEnvStr,
+      instanceEnvStr,
+      baseMap,
+      instanceMap,
+      effectiveMap,
+      runningEnvs,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: `Erro ao obter variáveis da instância: ${err.message}` });
+  }
+});
+
+// 14. Atualizar Variáveis de Ambiente de uma Instância Individual e Reiniciar
+router.put('/:id/instances/:containerName/env', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const service = await prisma.service.findUnique({ where: { id: req.params.id } });
+    if (!service) return res.status(404).json({ error: 'Serviço não encontrado.' });
+
+    const containerName = req.params.containerName;
+    const { envVars } = req.body;
+    if (typeof envVars !== 'string') {
+      return res.status(400).json({ error: 'O campo envVars deve ser uma string com formato KEY=VAL.' });
+    }
+
+    const { userNotes, meta } = parseServiceMetadata(service.notes);
+    meta.instanceEnvs = meta.instanceEnvs || {};
+    meta.instanceEnvs[containerName] = envVars.trim();
+
+    const updatedNotes = serializeServiceMetadata(userNotes, meta);
+    await prisma.service.update({
+      where: { id: service.id },
+      data: { notes: updatedNotes },
+    });
+
+    const baseMap = parseEnvStringToMap(service.envVars);
+    const instanceMap = parseEnvStringToMap(envVars);
+    const effectiveMap = { ...baseMap, ...instanceMap };
+    const effectiveEnvArray = Object.entries(effectiveMap).map(([k, v]) => `${k}=${v}`);
+
+    let recreated = false;
+    let recreateError: string | null = null;
+    try {
+      const docker = await dockerHostManager.getClientForHost(service.dockerHostId);
+      const oldContainer = docker.getContainer(containerName);
+      const inspect = await oldContainer.inspect();
+
+      await oldContainer.stop({ t: 5 }).catch(() => {});
+      await oldContainer.remove({ force: true }).catch(() => {});
+
+      const endpointsConfig: any = {};
+      if (inspect.NetworkSettings?.Networks) {
+        for (const netName of Object.keys(inspect.NetworkSettings.Networks)) {
+          endpointsConfig[netName] = {};
+        }
+      }
+      if (!endpointsConfig['proxy-net']) {
+        endpointsConfig['proxy-net'] = {};
+      }
+
+      const hostConfig: any = {
+        Binds: inspect.HostConfig.Binds,
+        RestartPolicy: inspect.HostConfig.RestartPolicy,
+        Memory: inspect.HostConfig.Memory,
+        CpuShares: inspect.HostConfig.CpuShares,
+        NetworkMode: inspect.HostConfig.NetworkMode,
+        PortBindings: inspect.HostConfig.PortBindings,
+      };
+
+      const newContainer = await docker.createContainer({
+        name: containerName,
+        Image: inspect.Config.Image,
+        Env: effectiveEnvArray,
+        Cmd: inspect.Config.Cmd,
+        Entrypoint: inspect.Config.Entrypoint,
+        WorkingDir: inspect.Config.WorkingDir,
+        User: inspect.Config.User,
+        Labels: inspect.Config.Labels,
+        HostConfig: hostConfig,
+        NetworkingConfig: {
+          EndpointsConfig: endpointsConfig,
+        },
+      });
+
+      await newContainer.start();
+      await dockerService.attachToNetwork(containerName, service.dockerHostId || undefined);
+      recreated = true;
+    } catch (e: any) {
+      console.warn(`[InstanceEnv] Falha ao recriar container ${containerName}:`, e.message);
+      recreateError = e.message;
+    }
+
+    await logAudit({
+      userId: req.user?.id,
+      userName: req.user?.name || 'Administrador',
+      action: 'INSTANCE_ENV_UPDATE',
+      entityType: 'SERVICE',
+      entityId: service.id,
+      details: `Variáveis da instância "${containerName}" atualizadas na stack "${service.name}". ${recreated ? 'Container recriado com sucesso.' : `Aviso: ${recreateError}`}`,
+      ipAddress: req.ip,
+    });
+
+    return res.json({
+      success: true,
+      recreated,
+      recreateError,
+      containerName,
+      effectiveMap,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: `Erro ao salvar variáveis da instância: ${err.message}` });
+  }
+});
+
+// 15. Adicionar Nova Instância / Componente ao Agrupamento do Serviço
+router.post('/:id/instances', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const service = await prisma.service.findUnique({ where: { id: req.params.id } });
+    if (!service) return res.status(404).json({ error: 'Serviço não encontrado.' });
+
+    const { name, image, internalPort, envVars, command, volumes } = req.body;
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'O nome do container é obrigatório.' });
+    }
+    if (!image || typeof image !== 'string' || !image.trim()) {
+      return res.status(400).json({ error: 'A imagem Docker é obrigatória.' });
+    }
+
+    const cleanName = name.trim();
+    const cleanImage = image.trim();
+    const parsedPort = internalPort ? Number(internalPort) : undefined;
+
+    const docker = await dockerHostManager.getClientForHost(service.dockerHostId);
+
+    // Checar se já existe container com esse nome
+    try {
+      const existing = await docker.getContainer(cleanName).inspect();
+      if (existing) {
+        return res.status(400).json({ error: `Já existe um container com o nome "${cleanName}".` });
+      }
+    } catch {}
+
+    // Pull image if not local
+    try {
+      const images = await docker.listImages();
+      const hasImage = images.some((img: any) =>
+        img.RepoTags?.some((t: string) => t === cleanImage || t === `${cleanImage}:latest`)
+      );
+      if (!hasImage) {
+        console.log(`🐳 Baixando imagem "${cleanImage}" para nova instância...`);
+        const stream = await docker.pull(cleanImage);
+        await new Promise((resolve, reject) => {
+          docker.modem.followProgress(stream, (err: any, res: any) => (err ? reject(err) : resolve(res)));
+        });
+      }
+    } catch (pullErr: any) {
+      console.warn(`[AddInstance] Aviso no pull da imagem: ${pullErr.message}`);
+    }
+
+    const baseMap = parseEnvStringToMap(service.envVars);
+    const instanceMap = envVars ? parseEnvStringToMap(envVars) : {};
+    const effectiveMap = { ...baseMap, ...instanceMap };
+    const effectiveEnvArray = Object.entries(effectiveMap).map(([k, v]) => `${k}=${v}`);
+
+    const labels: Record<string, string> = {
+      'com.docker.domain.service-id': service.id,
+      'com.docker.compose.service': cleanName,
+      'com.docker.compose.project': service.containerName,
+    };
+
+    let binds: string[] = [];
+    if (volumes && typeof volumes === 'string') {
+      binds = volumes.split('\n').map((v) => v.trim()).filter(Boolean);
+    }
+
+    const exposedPorts: any = {};
+    if (parsedPort) {
+      exposedPorts[`${parsedPort}/tcp`] = {};
+    }
+
+    const container = await docker.createContainer({
+      name: cleanName,
+      Image: cleanImage,
+      Env: effectiveEnvArray,
+      Cmd: command ? command.split(' ') : undefined,
+      Labels: labels,
+      ExposedPorts: Object.keys(exposedPorts).length > 0 ? exposedPorts : undefined,
+      HostConfig: {
+        RestartPolicy: { Name: 'unless-stopped' },
+        Binds: binds.length > 0 ? binds : undefined,
+      },
+      NetworkingConfig: {
+        EndpointsConfig: {
+          'proxy-net': {},
+        },
+      },
+    });
+
+    await container.start();
+    await dockerService.attachToNetwork(cleanName, service.dockerHostId || undefined);
+
+    // Update metadata: linkedContainers e instanceEnvs
+    const { userNotes, meta } = parseServiceMetadata(service.notes);
+    meta.linkedContainers = meta.linkedContainers || [];
+    if (!meta.linkedContainers.includes(cleanName)) {
+      meta.linkedContainers.push(cleanName);
+    }
+    if (envVars && envVars.trim()) {
+      meta.instanceEnvs = meta.instanceEnvs || {};
+      meta.instanceEnvs[cleanName] = envVars.trim();
+    }
+
+    const updatedNotes = serializeServiceMetadata(userNotes, meta);
+    await prisma.service.update({
+      where: { id: service.id },
+      data: { notes: updatedNotes },
+    });
+
+    await logAudit({
+      userId: req.user?.id,
+      userName: req.user?.name || 'Administrador',
+      action: 'INSTANCE_CREATED',
+      entityType: 'SERVICE',
+      entityId: service.id,
+      details: `Nova instância "${cleanName}" (${cleanImage}) adicionada à stack "${service.name}".`,
+      ipAddress: req.ip,
+    });
+
+    return res.status(201).json({
+      success: true,
+      containerName: cleanName,
+      image: cleanImage,
+      internalPort: parsedPort,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: `Erro ao adicionar nova instância: ${err.message}` });
   }
 });
 

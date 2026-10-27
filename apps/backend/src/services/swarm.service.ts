@@ -258,6 +258,57 @@ export class SwarmService {
       return [];
     }
   }
+
+  /**
+   * Verifica se o host especificado está com o Swarm ativo
+   */
+  public async isHostSwarmActive(hostId?: string | null): Promise<boolean> {
+    try {
+      const docker = await dockerHostManager.getClientForHost(hostId);
+      const info = await docker.info();
+      return info.Swarm?.LocalNodeState === 'active';
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Escala um serviço Swarm nativamente ajustando o número de réplicas
+   */
+  public async scaleSwarmService(
+    hostId: string | null | undefined,
+    serviceNameOrId: string,
+    targetCount: number
+  ): Promise<{ success: boolean; replicas: number }> {
+    const docker = await dockerHostManager.getClientForHost(hostId);
+    const services = await docker.listServices();
+    const found = services.find(
+      (s: any) =>
+        s.ID === serviceNameOrId ||
+        s.Spec?.Name === serviceNameOrId ||
+        s.Spec?.Name?.endsWith(`_${serviceNameOrId}`) ||
+        s.Spec?.Name?.includes(serviceNameOrId)
+    );
+
+    if (!found) {
+      throw new Error(`Serviço Swarm "${serviceNameOrId}" não encontrado no cluster.`);
+    }
+
+    const swarmService = docker.getService(found.ID);
+    const inspect = await swarmService.inspect();
+    const spec = inspect.Spec;
+
+    spec.Mode = spec.Mode || {};
+    spec.Mode.Replicated = spec.Mode.Replicated || {};
+    spec.Mode.Replicated.Replicas = targetCount;
+
+    await swarmService.update({
+      version: inspect.Version.Index,
+      ...spec,
+    });
+
+    return { success: true, replicas: targetCount };
+  }
 }
 
 export const swarmService = SwarmService.getInstance();

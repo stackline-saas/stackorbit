@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
+  ArrowRight,
   Save,
   Play,
   Square,
@@ -52,6 +53,8 @@ import {
   Clock,
   GitCommit,
   Pencil,
+  SlidersHorizontal,
+  Box,
 } from 'lucide-react';
 import type { Service, Domain, DockerContainerInfo } from '../../types/index.ts';
 import { useNotification } from '../../context/NotificationContext.tsx';
@@ -435,6 +438,216 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
   const [modalTerminalHistoryIndex, setModalTerminalHistoryIndex] = useState(-1);
   const modalTerminalBottomRef = React.useRef<HTMLDivElement>(null);
   const modalTerminalInputRef = React.useRef<HTMLInputElement>(null);
+
+  // States: Modal Adicionar Nova Instância
+  const [addInstanceModalOpen, setAddInstanceModalOpen] = useState(false);
+  const [newInstanceName, setNewInstanceName] = useState('');
+  const [newInstanceImage, setNewInstanceImage] = useState('');
+  const [newInstancePort, setNewInstancePort] = useState('');
+  const [newInstanceEnvs, setNewInstanceEnvs] = useState('');
+  const [newInstanceVolumes, setNewInstanceVolumes] = useState('');
+  const [newInstanceCommand, setNewInstanceCommand] = useState('');
+  const [isSubmittingNewInstance, setIsSubmittingNewInstance] = useState(false);
+
+  // States: Modal Templates Prontos na Stack
+  const [stackTemplateModalOpen, setStackTemplateModalOpen] = useState(false);
+  const [stackTemplatesList, setStackTemplatesList] = useState<any[]>([]);
+  const [selectedStackTemplate, setSelectedStackTemplate] = useState<any | null>(null);
+  const [stackTemplateCategory, setStackTemplateCategory] = useState<string>('all');
+  const [stackTemplateContainerName, setStackTemplateContainerName] = useState('');
+  const [stackTemplateFieldValues, setStackTemplateFieldValues] = useState<Record<string, string>>({});
+  const [isSubmittingStackTemplate, setIsSubmittingStackTemplate] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/templates', {
+      headers: { Authorization: `Bearer ${localStorage.getItem('dm_auth_token') || ''}` },
+    })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setStackTemplatesList(data))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (selectedStackTemplate) {
+      setStackTemplateContainerName(`${service.containerName}-${selectedStackTemplate.id}`);
+      const initial: Record<string, string> = {};
+      selectedStackTemplate.fields?.forEach((f: any) => {
+        initial[f.key] = f.defaultValue || '';
+      });
+      setStackTemplateFieldValues(initial);
+    }
+  }, [selectedStackTemplate, service.containerName]);
+
+  const handleDeployStackTemplate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStackTemplate || !stackTemplateContainerName.trim()) {
+      showNotification('error', 'Nome Obrigatório', 'Informe um nome para o container.');
+      return;
+    }
+
+    setIsSubmittingStackTemplate(true);
+    try {
+      const envLines: string[] = [];
+      if (selectedStackTemplate.id === 'postgres') {
+        envLines.push(`POSTGRES_USER=${stackTemplateFieldValues.POSTGRES_USER || 'postgres'}`);
+        envLines.push(`POSTGRES_PASSWORD=${stackTemplateFieldValues.POSTGRES_PASSWORD || 'Postgres2026!Sec'}`);
+        envLines.push(`POSTGRES_DB=${stackTemplateFieldValues.POSTGRES_DB || 'app_production'}`);
+        envLines.push('PGDATA=/var/lib/postgresql/data/pgdata');
+      } else if (selectedStackTemplate.id === 'redis') {
+        if (stackTemplateFieldValues.REDIS_PASSWORD) {
+          envLines.push(`REDIS_PASSWORD=${stackTemplateFieldValues.REDIS_PASSWORD}`);
+        }
+      } else if (selectedStackTemplate.id === 'mariadb') {
+        envLines.push(`MARIADB_USER=${stackTemplateFieldValues.MARIADB_USER || 'app_user'}`);
+        envLines.push(`MARIADB_PASSWORD=${stackTemplateFieldValues.MARIADB_PASSWORD || 'MariaDB@2026Pass'}`);
+        envLines.push(`MARIADB_ROOT_PASSWORD=${stackTemplateFieldValues.MARIADB_ROOT_PASSWORD || 'RootRoot@2026!'}`);
+        envLines.push(`MARIADB_DATABASE=${stackTemplateFieldValues.MARIADB_DATABASE || 'app_database'}`);
+      } else if (selectedStackTemplate.fields) {
+        selectedStackTemplate.fields.forEach((f: any) => {
+          const val = stackTemplateFieldValues[f.key];
+          if (val) envLines.push(`${f.key}=${val}`);
+        });
+      }
+
+      let cmd: string | undefined = undefined;
+      if (selectedStackTemplate.id === 'redis' && stackTemplateFieldValues.REDIS_PASSWORD) {
+        cmd = `redis-server --requirepass ${stackTemplateFieldValues.REDIS_PASSWORD}`;
+      }
+
+      const res = await authFetch(`/api/services/${service.id}/instances`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: stackTemplateContainerName.trim(),
+          image: selectedStackTemplate.defaultImage,
+          internalPort: selectedStackTemplate.defaultPort,
+          envVars: envLines.join('\n'),
+          command: cmd,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        showNotification(
+          'success',
+          'Componente Adicionado',
+          `Template "${selectedStackTemplate.name}" adicionado à stack como "${stackTemplateContainerName}".`
+        );
+        setStackTemplateModalOpen(false);
+        setSelectedStackTemplate(null);
+        await fetchContainers();
+        if (onRefreshData) onRefreshData();
+      } else {
+        showNotification('error', 'Falha ao adicionar template', data.error);
+      }
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+    } finally {
+      setIsSubmittingStackTemplate(false);
+    }
+  };
+
+  // States: Modal Envs da Instância Individual (Portainer Style)
+  const [instanceEnvModalContainer, setInstanceEnvModalContainer] = useState<string | null>(null);
+  const [instanceEnvBaseStr, setInstanceEnvBaseStr] = useState('');
+  const [instanceEnvCustomStr, setInstanceEnvCustomStr] = useState('');
+  const [instanceEnvBaseMap, setInstanceEnvBaseMap] = useState<Record<string, string>>({});
+  const [instanceEnvCustomMap, setInstanceEnvCustomMap] = useState<Record<string, string>>({});
+  const [instanceEnvEffectiveMap, setInstanceEnvEffectiveMap] = useState<Record<string, string>>({});
+  const [instanceEnvLoading, setInstanceEnvLoading] = useState(false);
+  const [instanceEnvSaving, setInstanceEnvSaving] = useState(false);
+  const [instanceEnvTab, setInstanceEnvTab] = useState<'visual' | 'raw'>('visual');
+
+  // Handler: Criar nova instância na stack
+  const handleAddInstance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newInstanceName.trim() || !newInstanceImage.trim()) {
+      showNotification('error', 'Campos Obrigatórios', 'Nome e imagem Docker são obrigatórios.');
+      return;
+    }
+    setIsSubmittingNewInstance(true);
+    try {
+      const res = await authFetch(`/api/services/${service.id}/instances`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newInstanceName.trim(),
+          image: newInstanceImage.trim(),
+          internalPort: newInstancePort ? Number(newInstancePort) : undefined,
+          envVars: newInstanceEnvs,
+          volumes: newInstanceVolumes,
+          command: newInstanceCommand,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showNotification('success', 'Instância Adicionada', `Nova instância "${newInstanceName}" criada e anexada à stack.`);
+        setAddInstanceModalOpen(false);
+        await fetchContainers();
+        if (onRefreshData) onRefreshData();
+      } else {
+        showNotification('error', 'Falha ao criar instância', data.error);
+      }
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+    } finally {
+      setIsSubmittingNewInstance(false);
+    }
+  };
+
+  // Handler: Abrir modal de envs da réplica
+  const handleOpenInstanceEnvModal = async (cName: string) => {
+    setInstanceEnvModalContainer(cName);
+    setInstanceEnvLoading(true);
+    setInstanceEnvTab('visual');
+    try {
+      const res = await authFetch(`/api/services/${service.id}/instances/${encodeURIComponent(cName)}/env`);
+      const data = await res.json();
+      if (res.ok) {
+        setInstanceEnvBaseStr(data.baseEnvStr || '');
+        setInstanceEnvCustomStr(data.instanceEnvStr || '');
+        setInstanceEnvBaseMap(data.baseMap || {});
+        setInstanceEnvCustomMap(data.instanceMap || {});
+        setInstanceEnvEffectiveMap(data.effectiveMap || {});
+      } else {
+        showNotification('error', 'Erro ao carregar variáveis', data.error);
+      }
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+    } finally {
+      setInstanceEnvLoading(false);
+    }
+  };
+
+  // Handler: Salvar envs da réplica e recriar container
+  const handleSaveInstanceEnv = async () => {
+    if (!instanceEnvModalContainer) return;
+    setInstanceEnvSaving(true);
+    try {
+      const res = await authFetch(`/api/services/${service.id}/instances/${encodeURIComponent(instanceEnvModalContainer)}/env`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ envVars: instanceEnvCustomStr }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showNotification(
+          'success',
+          'Envs Atualizadas',
+          `Variáveis salvas e instância "${instanceEnvModalContainer}" recriada com sucesso.`
+        );
+        setInstanceEnvModalContainer(null);
+        await fetchContainers();
+        if (onRefreshData) onRefreshData();
+      } else {
+        showNotification('error', 'Falha ao salvar', data.error);
+      }
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+    } finally {
+      setInstanceEnvSaving(false);
+    }
+  };
 
   // Fetch Logs for Modal
   const fetchModalLogs = async () => {
@@ -1326,6 +1539,18 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                 <span>{isRunning ? 'Em Execução' : 'Parado'}</span>
               </div>
 
+              {service.isSwarm ? (
+                <span className="text-[11px] font-semibold px-2 py-0.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-full flex items-center gap-1 shadow-2xs">
+                  <Layers className="w-3 h-3 text-purple-600" />
+                  <span>Modo Swarm (Ingress VIP Mesh)</span>
+                </span>
+              ) : (
+                <span className="text-[11px] font-medium px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-full flex items-center gap-1">
+                  <Box className="w-3 h-3 text-slate-500" />
+                  <span>Standalone Docker</span>
+                </span>
+              )}
+
               {isDefault && (
                 <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded">
                   Padrão (Catch-All)
@@ -1448,142 +1673,193 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
         </div>
       )}
 
-      {/* Main Tabbed Interface */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-        {/* Navigation Tabs Header */}
-        <div className="flex items-center gap-1 border-b border-slate-200 px-4 bg-slate-50/70 overflow-x-auto">
+      {/* Main Tabbed Interface: 2-Column Vertical Navigation Layout */}
+      <div className="flex flex-col lg:flex-row gap-5 items-start w-full">
+        {/* Left Vertical Menu */}
+        <div className="w-full lg:w-64 shrink-0 bg-white border border-slate-200 rounded-2xl p-2.5 shadow-2xs space-y-1 lg:sticky lg:top-4">
+          <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Navegação do Serviço
+          </div>
+
+          {/* 1. Containers */}
           <button
+            type="button"
             onClick={() => setActiveTab('containers')}
-            className={`px-4 py-3 text-xs font-semibold border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
               activeTab === 'containers'
-                ? 'border-blue-600 text-blue-600 bg-white'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'bg-blue-600 text-white font-bold shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <Boxes className="w-4 h-4 text-blue-600" />
-            <span>Containers da Stack</span>
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-100 text-blue-700 font-mono font-bold">
+            <div className="flex items-center gap-2.5 truncate">
+              <Boxes className={`w-4 h-4 shrink-0 ${activeTab === 'containers' ? 'text-white' : 'text-blue-600'}`} />
+              <span className="truncate">Containers da Stack</span>
+            </div>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+              activeTab === 'containers' ? 'bg-blue-700 text-white' : 'bg-blue-50 text-blue-700 border border-blue-200'
+            }`}>
               {containersList.length > 0 ? containersList.length : 1}
             </span>
           </button>
+
+          {/* 2. Envs */}
           <button
+            type="button"
             onClick={() => setActiveTab('env')}
-            className={`px-4 py-3 text-xs font-semibold border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
               activeTab === 'env'
-                ? 'border-blue-600 text-blue-600 bg-white'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'bg-blue-600 text-white font-bold shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <Layers className="w-4 h-4" />
-            <span>Variáveis de Ambiente (.env)</span>
+            <div className="flex items-center gap-2.5 truncate">
+              <Layers className={`w-4 h-4 shrink-0 ${activeTab === 'env' ? 'text-white' : 'text-slate-500'}`} />
+              <span className="truncate">Variáveis (.env)</span>
+            </div>
             {envRows.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-100 text-blue-700 font-mono">
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                activeTab === 'env' ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-700 border border-slate-200'
+              }`}>
                 {envRows.length}
               </span>
             )}
           </button>
 
+          {/* 3. Geral & Roteamento */}
           <button
+            type="button"
             onClick={() => setActiveTab('general')}
-            className={`px-4 py-3 text-xs font-semibold border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
               activeTab === 'general'
-                ? 'border-blue-600 text-blue-600 bg-white'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'bg-blue-600 text-white font-bold shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <Server className="w-4 h-4" />
-            <span>Geral & Roteamento</span>
+            <div className="flex items-center gap-2.5 truncate">
+              <Server className={`w-4 h-4 shrink-0 ${activeTab === 'general' ? 'text-white' : 'text-slate-500'}`} />
+              <span className="truncate">Geral & Roteamento</span>
+            </div>
           </button>
 
+          {/* 4. Domínios */}
           <button
+            type="button"
             onClick={() => setActiveTab('domains')}
-            className={`px-4 py-3 text-xs font-semibold border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
               activeTab === 'domains'
-                ? 'border-blue-600 text-blue-600 bg-white'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'bg-blue-600 text-white font-bold shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <Globe className="w-4 h-4" />
-            <span>Domínios & Traefik</span>
+            <div className="flex items-center gap-2.5 truncate">
+              <Globe className={`w-4 h-4 shrink-0 ${activeTab === 'domains' ? 'text-white' : 'text-emerald-600'}`} />
+              <span className="truncate">Domínios & Traefik</span>
+            </div>
             {serviceDomains.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 text-slate-700 font-mono">
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                activeTab === 'domains' ? 'bg-blue-700 text-white' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+              }`}>
                 {serviceDomains.length}
               </span>
             )}
           </button>
 
+          {/* 5. Origem & CI/CD Git */}
           <button
+            type="button"
             onClick={() => setActiveTab('build')}
-            className={`px-4 py-3 text-xs font-semibold border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
               activeTab === 'build'
-                ? 'border-blue-600 text-blue-600 bg-white'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'bg-blue-600 text-white font-bold shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <GitBranch className="w-4 h-4" />
-            <span>Origem & CI/CD Git</span>
+            <div className="flex items-center gap-2.5 truncate">
+              <GitBranch className={`w-4 h-4 shrink-0 ${activeTab === 'build' ? 'text-white' : 'text-blue-500'}`} />
+              <span className="truncate">Origem & CI/CD Git</span>
+            </div>
             {sourceType === 'GITHUB' && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-100 text-emerald-800 font-mono">
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                activeTab === 'build' ? 'bg-blue-700 text-white' : 'bg-blue-50 text-blue-700 border border-blue-200'
+              }`}>
                 Git
               </span>
             )}
           </button>
 
+          {/* 6. Docker Avançado */}
           <button
+            type="button"
             onClick={() => setActiveTab('docker')}
-            className={`px-4 py-3 text-xs font-semibold border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
               activeTab === 'docker'
-                ? 'border-blue-600 text-blue-600 bg-white'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'bg-blue-600 text-white font-bold shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <Settings className="w-4 h-4" />
-            <span>Docker Avançado</span>
+            <div className="flex items-center gap-2.5 truncate">
+              <Settings className={`w-4 h-4 shrink-0 ${activeTab === 'docker' ? 'text-white' : 'text-slate-500'}`} />
+              <span className="truncate">Docker Avançado</span>
+            </div>
           </button>
 
+          {/* 7. Terminal & SSH */}
           <button
+            type="button"
             onClick={() => setActiveTab('terminal')}
-            className={`px-4 py-3 text-xs font-semibold border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
               activeTab === 'terminal'
-                ? 'border-blue-600 text-blue-600 bg-white'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'bg-blue-600 text-white font-bold shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <TerminalSquare className="w-4 h-4 text-emerald-600" />
-            <span>Terminal & SSH</span>
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-100 text-emerald-800 font-mono flex items-center gap-1">
+            <div className="flex items-center gap-2.5 truncate">
+              <TerminalSquare className={`w-4 h-4 shrink-0 ${activeTab === 'terminal' ? 'text-white' : 'text-emerald-600'}`} />
+              <span className="truncate">Terminal & SSH</span>
+            </div>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold flex items-center gap-1 ${
+              activeTab === 'terminal' ? 'bg-blue-700 text-white' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+            }`}>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               Exec
             </span>
           </button>
 
+          {/* 8. Interconexão de Rede */}
           <button
+            type="button"
             onClick={() => setActiveTab('connection')}
-            className={`px-4 py-3 text-xs font-semibold border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
               activeTab === 'connection'
-                ? 'border-blue-600 text-blue-600 bg-white'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'bg-blue-600 text-white font-bold shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <Database className="w-4 h-4" />
-            <span>Interconexão de Rede</span>
+            <div className="flex items-center gap-2.5 truncate">
+              <Database className={`w-4 h-4 shrink-0 ${activeTab === 'connection' ? 'text-white' : 'text-slate-500'}`} />
+              <span className="truncate">Interconexão de Rede</span>
+            </div>
           </button>
 
+          {/* 9. Logs em Tempo Real */}
           <button
+            type="button"
             onClick={() => setActiveTab('logs')}
-            className={`px-4 py-3 text-xs font-semibold border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
               activeTab === 'logs'
-                ? 'border-blue-600 text-blue-600 bg-white'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'bg-blue-600 text-white font-bold shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <FileText className="w-4 h-4" />
-            <span>Logs em Tempo Real</span>
+            <div className="flex items-center gap-2.5 truncate">
+              <FileText className={`w-4 h-4 shrink-0 ${activeTab === 'logs' ? 'text-white' : 'text-slate-500'}`} />
+              <span className="truncate">Logs em Tempo Real</span>
+            </div>
           </button>
         </div>
 
-        {/* Tab Content Panes */}
-        <div className="p-6">
+        {/* Right Content Area */}
+        <div className="flex-1 min-w-0 bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden w-full p-6">
           {/* TAB 0: CONTAINERS DA STACK / SERVIÇO */}
           {activeTab === 'containers' && (
             <div className="space-y-6">
@@ -1637,6 +1913,39 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                       <span>Lista Plana</span>
                     </button>
                   </div>
+
+                  {/* Templates Prontos Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStackTemplateModalOpen(true);
+                      setSelectedStackTemplate(null);
+                    }}
+                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow-2xs transition-colors"
+                    title="Adicionar componente a partir de Templates Prontos (Redis, PostgreSQL, Adminer, pgAdmin, etc.)"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Templates Prontos</span>
+                  </button>
+
+                  {/* Add New Instance Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewInstanceName(`${service.containerName}-component`);
+                      setNewInstanceImage('');
+                      setNewInstancePort('');
+                      setNewInstanceEnvs('');
+                      setNewInstanceVolumes('');
+                      setNewInstanceCommand('');
+                      setAddInstanceModalOpen(true);
+                    }}
+                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow-2xs transition-colors"
+                    title="Adicionar uma nova instância/componente customizado a este agrupamento"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Nova Instância</span>
+                  </button>
 
                   {/* Container linker selector */}
                   <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg">
@@ -2154,6 +2463,15 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                           >
                                             <TerminalSquare className="w-3.5 h-3.5" />
                                           </button>
+
+                                          <button
+                                            type="button"
+                                            onClick={() => handleOpenInstanceEnvModal(c.name)}
+                                            className="p-1.5 text-slate-600 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
+                                            title={`Configurar variáveis de ambiente (.env) exclusivas de ${c.name}`}
+                                          >
+                                            <SlidersHorizontal className="w-3.5 h-3.5 text-purple-600" />
+                                          </button>
                                         </div>
                                       </td>
                                     </tr>
@@ -2413,6 +2731,15 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                     title={`Abrir Terminal / SSH em ${c.name} em janela`}
                                   >
                                     <TerminalSquare className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenInstanceEnvModal(c.name)}
+                                    className="p-1.5 text-slate-600 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
+                                    title={`Configurar variáveis de ambiente (.env) exclusivas de ${c.name}`}
+                                  >
+                                    <SlidersHorizontal className="w-3.5 h-3.5 text-purple-600" />
                                   </button>
 
                                   {c.isManuallyLinked && (
@@ -5059,6 +5386,547 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                 className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition-colors"
               >
                 Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Adicionar Nova Instância / Componente à Stack */}
+      {addInstanceModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                  <Plus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Adicionar Instância / Componente</h3>
+                  <p className="text-[11px] text-slate-500">Agrupe um novo container sob a stack "{service.name}"</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAddInstanceModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200/60 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddInstance} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-emerald-700 font-bold">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Preencher com Template Pronto (Opcional):</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400">Auto-preenche campos</span>
+                </label>
+                <select
+                  onChange={(e) => {
+                    const tpl = stackTemplatesList.find((t) => t.id === e.target.value);
+                    if (tpl) {
+                      setNewInstanceName(`${service.containerName}-${tpl.id}`);
+                      setNewInstanceImage(tpl.defaultImage);
+                      setNewInstancePort(String(tpl.defaultPort));
+                      const initialEnvs: string[] = [];
+                      tpl.fields?.forEach((f: any) => {
+                        if (f.defaultValue) initialEnvs.push(`${f.key}=${f.defaultValue}`);
+                      });
+                      setNewInstanceEnvs(initialEnvs.join('\n'));
+                    }
+                  }}
+                  className="w-full px-3 py-1.5 text-xs bg-emerald-50/50 border border-emerald-200 rounded-lg font-medium text-slate-800 focus:bg-white focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                >
+                  <option value="">Selecione um template pronto...</option>
+                  {stackTemplatesList.map((tpl) => (
+                    <option key={tpl.id} value={tpl.id}>
+                      {tpl.name} ({tpl.defaultImage} :{tpl.defaultPort})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nome do Container <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newInstanceName}
+                  onChange={(e) => setNewInstanceName(e.target.value)}
+                  placeholder="ex: redis-srv, pgadmin-srv, worker-queue"
+                  className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg font-mono focus:bg-white focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Imagem Docker <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newInstanceImage}
+                    onChange={(e) => setNewInstanceImage(e.target.value)}
+                    placeholder="ex: redis:7-alpine, dpage/pgadmin4"
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg font-mono focus:bg-white focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Porta Interna (TCP/HTTP)
+                  </label>
+                  <input
+                    type="number"
+                    value={newInstancePort}
+                    onChange={(e) => setNewInstancePort(e.target.value)}
+                    placeholder="ex: 6379, 80"
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg font-mono focus:bg-white focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Variáveis de Ambiente Iniciais (Opcional)
+                </label>
+                <textarea
+                  rows={3}
+                  value={newInstanceEnvs}
+                  onChange={(e) => setNewInstanceEnvs(e.target.value)}
+                  placeholder="KEY1=VALUE1&#10;KEY2=VALUE2"
+                  className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg font-mono focus:bg-white focus:ring-1 focus:ring-emerald-500 focus:outline-none resize-none"
+                />
+                <p className="text-[10px] text-slate-400 mt-0.5">As variáveis globais da stack também serão mescladas automaticamente.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Volumes / Mapeamento de Pastas (Opcional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={newInstanceVolumes}
+                  onChange={(e) => setNewInstanceVolumes(e.target.value)}
+                  placeholder="/host/path:/container/path ou volume_name:/data"
+                  className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg font-mono focus:bg-white focus:ring-1 focus:ring-emerald-500 focus:outline-none resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Comando de Inicialização (Cmd - Opcional)
+                </label>
+                <input
+                  type="text"
+                  value={newInstanceCommand}
+                  onChange={(e) => setNewInstanceCommand(e.target.value)}
+                  placeholder="ex: redis-server --appendonly yes"
+                  className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg font-mono focus:bg-white focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAddInstanceModalOpen(false)}
+                  className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingNewInstance}
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-colors disabled:opacity-50"
+                >
+                  {isSubmittingNewInstance ? (
+                    <>
+                      <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Criando Instância...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Criar e Anexar à Stack</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Templates Prontos para a Stack */}
+      {stackTemplateModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-500 text-white flex items-center justify-center shadow-xs">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Adicionar Template Pronto à Stack</h3>
+                  <p className="text-xs text-slate-500">
+                    Instale bancos de dados, caches e ferramentas web sob o serviço <strong className="text-slate-800">{service.name}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setStackTemplateModalOpen(false);
+                  setSelectedStackTemplate(null);
+                }}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200/60 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Categorias */}
+            <div className="px-6 pt-3 pb-2 border-b border-slate-100 flex items-center gap-2 overflow-x-auto bg-slate-50/50">
+              {[
+                { id: 'all', label: 'Todos os Templates' },
+                { id: 'database', label: 'Bancos de Dados' },
+                { id: 'cache_queue', label: 'Cache & Mensageria' },
+                { id: 'tools_web', label: 'Ferramentas Web' },
+              ].map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setStackTemplateCategory(cat.id)}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                    stackTemplateCategory === cat.id
+                      ? 'bg-emerald-600 text-white shadow-2xs'
+                      : 'bg-white text-slate-600 hover:bg-slate-200/60 border border-slate-200'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Grid de Templates ou Formulário do Template Selecionado */}
+            <div className="p-6 flex-1 overflow-y-auto space-y-4">
+              {!selectedStackTemplate ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {stackTemplatesList
+                    .filter((t) => stackTemplateCategory === 'all' || t.category === stackTemplateCategory)
+                    .map((tpl) => (
+                      <div
+                        key={tpl.id}
+                        onClick={() => setSelectedStackTemplate(tpl)}
+                        className="p-4 rounded-xl border border-slate-200 bg-white hover:border-emerald-500 hover:shadow-md cursor-pointer transition-all flex flex-col justify-between group"
+                      >
+                        <div>
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold">
+                                <Database className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <h4 className="text-xs font-bold text-slate-900 group-hover:text-emerald-700 transition-colors">
+                                  {tpl.name}
+                                </h4>
+                                <span className="font-mono text-[10px] text-slate-400">{tpl.defaultImage}</span>
+                              </div>
+                            </div>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                              :{tpl.defaultPort}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 leading-relaxed">{tpl.description}</p>
+                        </div>
+
+                        <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                          <span className="text-[10px] text-slate-400 uppercase font-semibold">{tpl.categoryLabel || tpl.category}</span>
+                          <span className="font-semibold text-emerald-700 group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
+                            <span>Instalar</span>
+                            <ArrowRight className="w-3 h-3" />
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <form onSubmit={handleDeployStackTemplate} className="space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedStackTemplate(null)}
+                        className="text-xs font-semibold text-slate-500 hover:text-slate-800 flex items-center gap-1"
+                      >
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                        <span>Voltar aos templates</span>
+                      </button>
+                      <span className="text-slate-300">|</span>
+                      <span className="text-xs font-bold text-slate-900">{selectedStackTemplate.name}</span>
+                    </div>
+                    <span className="text-xs font-mono text-slate-500">{selectedStackTemplate.defaultImage} (porta :{selectedStackTemplate.defaultPort})</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Nome da Nova Instância / Container <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={stackTemplateContainerName}
+                      onChange={(e) => setStackTemplateContainerName(e.target.value)}
+                      placeholder="ex: meu-projeto-postgres"
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg font-mono focus:bg-white focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {selectedStackTemplate.fields && selectedStackTemplate.fields.length > 0 && (
+                    <div className="space-y-3 pt-2">
+                      <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider text-[10px]">
+                        Parâmetros de Configuração do Template
+                      </h5>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {selectedStackTemplate.fields.map((f: any) => (
+                          <div key={f.key}>
+                            <label className="block text-xs font-semibold text-slate-700 mb-1">
+                              {f.label} {f.required && <span className="text-rose-500">*</span>}
+                            </label>
+                            <input
+                              type={f.type === 'password' ? 'text' : f.type || 'text'}
+                              required={f.required}
+                              value={stackTemplateFieldValues[f.key] || ''}
+                              onChange={(e) =>
+                                setStackTemplateFieldValues((prev) => ({
+                                  ...prev,
+                                  [f.key]: e.target.value,
+                                }))
+                              }
+                              placeholder={f.defaultValue || f.key}
+                              className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg font-mono focus:bg-white focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="p-3 bg-emerald-50/60 border border-emerald-100 rounded-xl text-xs text-emerald-900 flex items-start gap-2">
+                    <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <p className="leading-relaxed">
+                      O container será criado, anexo à rede <strong className="font-mono">proxy-net</strong> e associado diretamente
+                      à stack <strong className="font-mono">{service.name}</strong> com todas as variáveis geradas automaticamente.
+                    </p>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedStackTemplate(null)}
+                      className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmittingStackTemplate}
+                      className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-colors disabled:opacity-50"
+                    >
+                      {isSubmittingStackTemplate ? (
+                        <>
+                          <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Instalando Template na Stack...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Adicionar à Stack</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Variáveis de Ambiente da Instância Individual (Portainer Style) */}
+      {instanceEnvModalContainer && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+                  <SlidersHorizontal className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-slate-900">Variáveis de Ambiente da Instância</h3>
+                    <span className="font-mono text-xs font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                      {instanceEnvModalContainer}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Substitua variáveis globais ou configure parâmetros exclusivos desta réplica (estilo Portainer).
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInstanceEnvModalContainer(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200/60 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Navigation Tabs */}
+            <div className="px-5 pt-3 border-b border-slate-100 flex items-center gap-4 text-xs font-semibold bg-white">
+              <button
+                type="button"
+                onClick={() => setInstanceEnvTab('visual')}
+                className={`pb-2.5 border-b-2 flex items-center gap-1.5 transition-colors ${
+                  instanceEnvTab === 'visual'
+                    ? 'border-purple-600 text-purple-700'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>Visualização Mesclada ({Object.keys(instanceEnvEffectiveMap).length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setInstanceEnvTab('raw')}
+                className={`pb-2.5 border-b-2 flex items-center gap-1.5 transition-colors ${
+                  instanceEnvTab === 'raw'
+                    ? 'border-purple-600 text-purple-700'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>Customização desta Instância (.env)</span>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 flex-1 overflow-y-auto space-y-4">
+              {instanceEnvLoading ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs">
+                  <RotateCw className="w-5 h-5 animate-spin text-purple-600" />
+                  <span>Carregando variáveis da instância...</span>
+                </div>
+              ) : instanceEnvTab === 'visual' ? (
+                <div className="space-y-3">
+                  <div className="p-3 bg-purple-50/60 border border-purple-100 rounded-xl text-xs text-purple-900 flex items-start gap-2">
+                    <Info className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+                    <p className="leading-relaxed">
+                      Esta réplica herda as variáveis globais da stack. Chaves personalizadas nesta instância substituem
+                      as globais com o mesmo nome.
+                    </p>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                    <table className="w-full text-left text-xs font-mono">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[10px] font-semibold uppercase">
+                        <tr>
+                          <th className="px-3.5 py-2">Variável</th>
+                          <th className="px-3.5 py-2">Valor Efetivo</th>
+                          <th className="px-3.5 py-2 text-right">Origem</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {Object.keys(instanceEnvEffectiveMap).length === 0 ? (
+                          <tr>
+                            <td colSpan={3} className="px-4 py-6 text-center text-slate-400 font-sans text-xs">
+                              Nenhuma variável de ambiente definida.
+                            </td>
+                          </tr>
+                        ) : (
+                          Object.entries(instanceEnvEffectiveMap).map(([key, val]) => {
+                            const isOverridden = key in instanceEnvCustomMap;
+                            return (
+                              <tr key={key} className={isOverridden ? 'bg-purple-50/30' : ''}>
+                                <td className="px-3.5 py-2 font-bold text-slate-800">{key}</td>
+                                <td className="px-3.5 py-2 text-slate-600 break-all select-all">{val}</td>
+                                <td className="px-3.5 py-2 text-right">
+                                  {isOverridden ? (
+                                    <span className="px-2 py-0.5 bg-purple-100 text-purple-800 border border-purple-200 rounded text-[10px] font-bold">
+                                      Sobrescrito na Instância
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-medium">
+                                      Herdado da Stack
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-slate-700">
+                      Variáveis Exclusivas / Overrides para <span className="font-mono text-purple-700">{instanceEnvModalContainer}</span>:
+                    </label>
+                    <span className="text-[11px] text-slate-400 font-mono">Formato KEY=VALUE</span>
+                  </div>
+
+                  <textarea
+                    rows={10}
+                    value={instanceEnvCustomStr}
+                    onChange={(e) => setInstanceEnvCustomStr(e.target.value)}
+                    placeholder="INSTANCE_ID=2&#10;WORKER_QUEUE=high-priority&#10;PORT=8080"
+                    className="w-full p-3 text-xs bg-slate-900 text-emerald-400 font-mono rounded-xl border border-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 leading-relaxed resize-none selection:bg-purple-600 selection:text-white"
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    Ao salvar, o container <strong className="text-slate-800 font-mono">{instanceEnvModalContainer}</strong> será
+                    recriado de forma transparente para aplicar estas variáveis de ambiente, sem afetar nenhuma outra instância.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setInstanceEnvModalContainer(null)}
+                className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-200/60 rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveInstanceEnv}
+                disabled={instanceEnvSaving}
+                className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-colors disabled:opacity-50"
+              >
+                {instanceEnvSaving ? (
+                  <>
+                    <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Aplicando e Recriando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Salvar e Reiniciar Instância</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

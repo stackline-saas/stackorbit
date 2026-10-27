@@ -25,6 +25,7 @@ import { CloudflareView } from './components/views/CloudflareView.tsx';
 import { AuditLogsView } from './components/views/AuditLogsView.tsx';
 import { TestSuiteView } from './components/views/TestSuiteView.tsx';
 import { SettingsView } from './components/views/SettingsView.tsx';
+import { SettingsHubView } from './components/views/SettingsHubView.tsx';
 import { IntegrationsView } from './components/views/IntegrationsView.tsx';
 import { ProjectsManagementView } from './components/views/ProjectsManagementView.tsx';
 import { ProjectHostsView } from './components/views/ProjectHostsView.tsx';
@@ -694,8 +695,8 @@ function MainApp() {
         />
 
         {/* View Content Area with Declarative Routing */}
-        <main className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-7xl mx-auto">
+        <main className={`flex-1 overflow-y-auto ${location.pathname.startsWith('/services/') || location.pathname.startsWith('/settings') ? 'p-4 md:p-6' : 'p-6'}`}>
+          <div className={location.pathname.startsWith('/services/') || location.pathname.startsWith('/settings') ? 'w-full' : 'max-w-7xl mx-auto'}>
             <ErrorBoundary>
               <Routes>
                 {/* Home & Login Redirects */}
@@ -858,18 +859,29 @@ function MainApp() {
                 }
               />
 
-              {/* 5. Default Catch-All Service */}
+              {/* 5. Central Unificada de Configurações (com Abas: Geral, Fallback, Git, Traefik, Cloudflare) */}
               <Route
-                path="/default-service"
+                path="/settings"
                 element={
-                  <DefaultServiceView
+                  <SettingsHubView
+                    onSettingsSaved={loadData}
+                    projectId={selectedProjectId}
+                    projectName={selectedProject?.name}
                     services={services}
                     domains={domains}
                     onSetDefault={handleSetDefaultService}
-                    isLoading={isRefreshing}
+                    isLoadingDefaultService={isRefreshing}
+                    onApplyTraefik={handleApplyTraefik}
+                    isApplyingTraefik={isApplyingTraefik}
                   />
                 }
               />
+
+              {/* Redirecionamentos transparentes das rotas antigas para as abas correspondentes em /settings */}
+              <Route path="/default-service" element={<Navigate to="/settings?tab=fallback" replace />} />
+              <Route path="/integrations" element={<Navigate to="/settings?tab=git" replace />} />
+              <Route path="/traefik" element={<Navigate to="/settings?tab=traefik" replace />} />
+              <Route path="/cloudflare" element={<Navigate to="/settings?tab=cloudflare" replace />} />
 
               {/* 6. Docker Containers */}
               <Route
@@ -913,58 +925,11 @@ function MainApp() {
                 }
               />
 
-              {/* 6b. Git Integrations */}
-              <Route
-                path="/integrations"
-                element={
-                  <IntegrationsView
-                    projectId={selectedProjectId}
-                    projectName={selectedProject?.name}
-                  />
-                }
-              />
-
-              {/* 7. Traefik Dynamic Router */}
-              <Route
-                path="/traefik"
-                element={
-                  <TraefikView
-                    onApplyConfig={handleApplyTraefik}
-                    isApplying={isApplyingTraefik}
-                    projectId={selectedProjectId}
-                    projectName={selectedProject?.name}
-                  />
-                }
-              />
-
-              {/* 8. Cloudflare & SSL */}
-              <Route
-                path="/cloudflare"
-                element={
-                  <CloudflareView
-                    projectId={selectedProjectId}
-                    projectName={selectedProject?.name}
-                  />
-                }
-              />
-
-              {/* 9. Audit Logs */}
+              {/* 7. Audit Logs */}
               <Route path="/audit" element={<AuditLogsView />} />
 
-              {/* 10. Test Suite */}
+              {/* 8. Test Suite */}
               <Route path="/tests" element={<TestSuiteView />} />
-
-              {/* 11. System Settings */}
-              <Route
-                path="/settings"
-                element={
-                  <SettingsView
-                    onSettingsSaved={loadData}
-                    projectId={selectedProjectId}
-                    projectName={selectedProject?.name}
-                  />
-                }
-              />
 
               {/* Catch-all fallback route */}
               <Route path="*" element={<Navigate to="/dashboard" replace />} />

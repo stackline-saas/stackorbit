@@ -102,30 +102,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Boxes,
     },
     {
-      id: 'default-service' as ActiveTab,
-      path: '/default-service',
-      label: 'Serviço Padrão (Fallback)',
-      icon: Compass,
-    },
-    {
-      id: 'integrations' as ActiveTab,
-      path: '/integrations',
-      label: 'Integrações Git',
-      icon: GitBranch,
-    },
-    {
-      id: 'traefik' as ActiveTab,
-      path: '/traefik',
-      label: 'Traefik & Proxy',
-      icon: Route,
-    },
-    {
-      id: 'cloudflare' as ActiveTab,
-      path: '/cloudflare',
-      label: 'Cloudflare & SSL',
-      icon: ShieldCheck,
-    },
-    {
       id: 'settings' as ActiveTab,
       path: '/settings',
       label: 'Configurações',

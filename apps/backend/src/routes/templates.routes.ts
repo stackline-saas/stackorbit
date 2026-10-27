@@ -4,11 +4,15 @@ import { prisma, logAudit } from '../db.js';
 import { dockerService } from '../services/docker.service.js';
 import { traefikService } from '../services/traefik.service.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.middleware.js';
+import { config } from '../config.js';
 
 const router = Router();
 
 // 1. List templates
 router.get('/', requireAuth, (req, res) => {
+  if (!config.enableBetaFeatures) {
+    return res.json(SERVICE_TEMPLATES.filter((t) => t.category !== 'sites_cms'));
+  }
   return res.json(SERVICE_TEMPLATES);
 });
 
@@ -19,6 +23,10 @@ router.post('/deploy', requireAuth, async (req: AuthenticatedRequest, res) => {
   const template = SERVICE_TEMPLATES.find((t) => t.id === templateId);
   if (!template) {
     return res.status(404).json({ error: 'Template não encontrado.' });
+  }
+
+  if (!config.enableBetaFeatures && template.category === 'sites_cms') {
+    return res.status(403).json({ error: 'Templates de Sites Web estão em testes e desabilitados em produção.' });
   }
 
   const cleanContainerName = (containerName || template.defaultContainerName).trim();

@@ -3,8 +3,20 @@ import { prisma, logAudit } from '../db.js';
 import { databaseInspectorService } from '../services/database-inspector.service.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.middleware.js';
 import { parseServiceMetadata } from './services.routes.js';
+import { config } from '../config.js';
 
 const router = Router();
+
+// Trava para ambientes de produção: Database Studio disponível apenas se enableBetaFeatures estiver ativo
+router.use((_req, res, next) => {
+  if (!config.enableBetaFeatures) {
+    return res.status(403).json({
+      error: 'O módulo de Bancos de Dados (Database Studio) está em desenvolvimento e temporariamente desabilitado em produção.',
+      code: 'FEATURE_DISABLED_IN_PRODUCTION',
+    });
+  }
+  next();
+});
 
 // 1. Listar todas as instâncias de bancos de dados do projeto
 router.get('/', requireAuth, async (req: AuthenticatedRequest, res) => {

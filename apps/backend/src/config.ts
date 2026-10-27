@@ -7,6 +7,11 @@ dotenv.config();
 export const config = {
   port: Number(process.env.PORT) || 3000,
   nodeEnv: process.env.NODE_ENV || 'development',
+  // Trava de funcionalidades em desenvolvimento/beta (Sites Web, Database Studio, etc.)
+  // Por padrão: Habilitado apenas em desenvolvimento. Bloqueado em produção a menos que ENABLE_BETA_FEATURES=true
+  enableBetaFeatures: process.env.ENABLE_BETA_FEATURES !== undefined
+    ? process.env.ENABLE_BETA_FEATURES === 'true'
+    : (process.env.NODE_ENV !== 'production'),
   jwtSecret: process.env.JWT_SECRET || 'stackorbit-jwt-secret-key-2026-strict',
   jwtExpiresIn: '7d',
   

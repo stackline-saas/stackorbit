@@ -300,6 +300,8 @@ export interface DashboardStats {
   recentAuditLogs: AuditLog[];
   lastProxyConfigAppliedAt?: string;
   mainDomain?: string;
+  enableBetaFeatures?: boolean;
+  isProduction?: boolean;
 }
 
 export interface TestResult {

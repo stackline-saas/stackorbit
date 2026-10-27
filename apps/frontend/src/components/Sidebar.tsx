@@ -39,6 +39,7 @@ interface SidebarProps {
   hosts?: DockerHost[];
   selectedProjectId?: string | null;
   onSelectProject?: (projectId: string | null) => void;
+  enableBetaFeatures?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -53,6 +54,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   hosts = [],
   selectedProjectId,
   onSelectProject,
+  enableBetaFeatures = false,
 }) => {
   const { user, logout } = useAuth();
   const location = useLocation();
@@ -94,20 +96,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Server,
       count: servicesCount,
     },
-    {
-      id: 'sites' as ActiveTab,
-      path: '/sites',
-      label: 'Sites Web',
-      icon: Layout,
-      count: sitesCount,
-    },
-    {
-      id: 'databases' as ActiveTab,
-      path: '/databases',
-      label: 'Bancos de Dados',
-      icon: Database,
-      count: databasesCount,
-    },
+    ...(enableBetaFeatures
+      ? [
+          {
+            id: 'sites' as ActiveTab,
+            path: '/sites',
+            label: 'Sites Web',
+            icon: Layout,
+            count: sitesCount,
+          },
+          {
+            id: 'databases' as ActiveTab,
+            path: '/databases',
+            label: 'Bancos de Dados',
+            icon: Database,
+            count: databasesCount,
+          },
+        ]
+      : []),
     {
       id: 'domains' as ActiveTab,
       path: '/domains',

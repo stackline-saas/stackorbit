@@ -60,6 +60,7 @@ interface ServiceDetailRouteWrapperProps {
   loadData: () => void;
   mainDomain: string;
   isRefreshing: boolean;
+  enableBetaFeatures?: boolean;
 }
 
 const ServiceDetailRouteWrapper: React.FC<ServiceDetailRouteWrapperProps> = ({
@@ -75,6 +76,7 @@ const ServiceDetailRouteWrapper: React.FC<ServiceDetailRouteWrapperProps> = ({
   loadData,
   mainDomain,
   isRefreshing,
+  enableBetaFeatures = false,
 }) => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -126,6 +128,7 @@ const ServiceDetailRouteWrapper: React.FC<ServiceDetailRouteWrapperProps> = ({
       onTriggerRebuild={onTriggerRebuild}
       onRefreshData={loadData}
       mainDomain={mainDomain}
+      enableBetaFeatures={enableBetaFeatures}
     />
   );
 };
@@ -699,6 +702,8 @@ function MainApp() {
     );
   });
 
+  const enableBetaFeatures = stats?.enableBetaFeatures ?? (import.meta.env.DEV ? true : false);
+
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
       {/* Sidebar Navigation */}
@@ -714,6 +719,7 @@ function MainApp() {
         hosts={hosts}
         selectedProjectId={selectedProjectId}
         onSelectProject={handleSelectProject}
+        enableBetaFeatures={enableBetaFeatures}
       />
 
       {/* Main Viewport */}
@@ -865,36 +871,51 @@ function MainApp() {
                     loadData={loadData}
                     mainDomain={stats?.mainDomain || 'bla.com.br'}
                     isRefreshing={isRefreshing}
+                    enableBetaFeatures={enableBetaFeatures}
                   />
                 }
               />
 
-              {/* 3b. Sites Web & CMS */}
+              {/* 3b. Sites Web & CMS (Disponível apenas em desenvolvimento ou com enableBetaFeatures) */}
               <Route
                 path="/sites"
                 element={
-                  <SitesView
-                    selectedProjectId={selectedProjectId}
-                    projects={projects}
-                    mainDomain={stats?.mainDomain || 'bla.com.br'}
-                  />
+                  enableBetaFeatures ? (
+                    <SitesView
+                      selectedProjectId={selectedProjectId}
+                      projects={projects}
+                      mainDomain={stats?.mainDomain || 'bla.com.br'}
+                    />
+                  ) : (
+                    <Navigate to="/dashboard" replace />
+                  )
                 }
               />
 
-              {/* 3c. Bancos de Dados Hub & Studio */}
+              {/* 3c. Bancos de Dados Hub & Studio (Disponível apenas em desenvolvimento ou com enableBetaFeatures) */}
               <Route
                 path="/databases"
                 element={
-                  <DatabasesView
-                    selectedProjectId={selectedProjectId}
-                    projects={projects}
-                    mainDomain={stats?.mainDomain || 'bla.com.br'}
-                  />
+                  enableBetaFeatures ? (
+                    <DatabasesView
+                      selectedProjectId={selectedProjectId}
+                      projects={projects}
+                      mainDomain={stats?.mainDomain || 'bla.com.br'}
+                    />
+                  ) : (
+                    <Navigate to="/dashboard" replace />
+                  )
                 }
               />
               <Route
                 path="/databases/:id"
-                element={<DatabaseStudioView />}
+                element={
+                  enableBetaFeatures ? (
+                    <DatabaseStudioView />
+                  ) : (
+                    <Navigate to="/dashboard" replace />
+                  )
+                }
               />
 
               {/* 4. Domains & Routing */}

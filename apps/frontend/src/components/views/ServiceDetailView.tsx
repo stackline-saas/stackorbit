@@ -77,6 +77,7 @@ interface ServiceDetailViewProps {
   onRefreshData?: () => void;
   mainDomain?: string;
   initialTab?: TabType;
+  enableBetaFeatures?: boolean;
 }
 
 type TabType =
@@ -114,13 +115,25 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
   onRefreshData,
   mainDomain = 'bla.com.br',
   initialTab = 'containers',
+  enableBetaFeatures = false,
 }) => {
   const { showNotification } = useNotification();
   const { authFetch } = useAuth();
 
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab') as TabType | null;
-  const validTabs: TabType[] = ['containers', 'files', 'sftp', 'env', 'general', 'build', 'docker', 'domains', 'terminal', 'connection', 'logs'];
+  const validTabs: TabType[] = [
+    'containers',
+    ...(enableBetaFeatures ? (['files', 'sftp'] as TabType[]) : []),
+    'env',
+    'general',
+    'build',
+    'docker',
+    'domains',
+    'terminal',
+    'connection',
+    'logs'
+  ];
 
   const resolvedInitialTab = (tabFromUrl && validTabs.includes(tabFromUrl)) ? tabFromUrl : initialTab;
   const [activeTab, setActiveTabState] = useState<TabType>(resolvedInitialTab);
@@ -1890,47 +1903,50 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
             </span>
           </button>
 
-          {/* 1b. Gerenciador de Arquivos & Web IDE */}
-          <button
-            type="button"
-            onClick={() => setActiveTab('files')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-              activeTab === 'files'
-                ? 'bg-blue-600 text-white font-bold shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <div className="flex items-center gap-2.5 truncate">
-              <FolderOpen className={`w-4 h-4 shrink-0 ${activeTab === 'files' ? 'text-white' : 'text-blue-500'}`} />
-              <span className="truncate">Arquivos & Web IDE</span>
-            </div>
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
-              activeTab === 'files' ? 'bg-blue-700 text-white' : 'bg-blue-50 text-blue-700 border border-blue-200'
-            }`}>
-              Web
-            </span>
-          </button>
+          {/* 1b. Gerenciador de Arquivos & Web IDE & SFTP (apenas se enableBetaFeatures estiver ativo) */}
+          {enableBetaFeatures && (
+            <>
+              <button
+                type="button"
+                onClick={() => setActiveTab('files')}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                  activeTab === 'files'
+                    ? 'bg-blue-600 text-white font-bold shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 truncate">
+                  <FolderOpen className={`w-4 h-4 shrink-0 ${activeTab === 'files' ? 'text-white' : 'text-blue-500'}`} />
+                  <span className="truncate">Arquivos & Web IDE</span>
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                  activeTab === 'files' ? 'bg-blue-700 text-white' : 'bg-blue-50 text-blue-700 border border-blue-200'
+                }`}>
+                  Web
+                </span>
+              </button>
 
-          {/* 1c. Acesso SFTP / FTP */}
-          <button
-            type="button"
-            onClick={() => setActiveTab('sftp')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-              activeTab === 'sftp'
-                ? 'bg-blue-600 text-white font-bold shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <div className="flex items-center gap-2.5 truncate">
-              <Key className={`w-4 h-4 shrink-0 ${activeTab === 'sftp' ? 'text-white' : 'text-purple-500'}`} />
-              <span className="truncate">Acesso SFTP / FTP</span>
-            </div>
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
-              activeTab === 'sftp' ? 'bg-blue-700 text-white' : 'bg-purple-50 text-purple-700 border border-purple-200'
-            }`}>
-              :2222
-            </span>
-          </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('sftp')}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                  activeTab === 'sftp'
+                    ? 'bg-blue-600 text-white font-bold shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 truncate">
+                  <Key className={`w-4 h-4 shrink-0 ${activeTab === 'sftp' ? 'text-white' : 'text-purple-500'}`} />
+                  <span className="truncate">Acesso SFTP / FTP</span>
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                  activeTab === 'sftp' ? 'bg-blue-700 text-white' : 'bg-purple-50 text-purple-700 border border-purple-200'
+                }`}>
+                  :2222
+                </span>
+              </button>
+            </>
+          )}
 
           {/* 2. Envs */}
           <button

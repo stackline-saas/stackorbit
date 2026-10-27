@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../db.js';
 import { dockerService } from '../services/docker.service.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
+import { config } from '../config.js';
 
 const router = Router();
 
@@ -43,6 +44,8 @@ router.get('/', requireAuth, async (req, res) => {
       recentAuditLogs: recentAudit,
       lastProxyConfigAppliedAt: lastProxyConfig?.appliedAt?.toISOString(),
       mainDomain: settings?.mainDomain || 'meudominio.com.br',
+      enableBetaFeatures: config.enableBetaFeatures,
+      isProduction: config.nodeEnv === 'production',
     };
 
     return res.json(stats);

@@ -10,8 +10,20 @@ import { siteFilesService } from '../services/site-files.service.js';
 import { SERVICE_TEMPLATES } from '../templates.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.middleware.js';
 import { parseServiceMetadata, serializeServiceMetadata, matchContainersForService } from './services.routes.js';
+import { config } from '../config.js';
 
 const router = Router();
+
+// Trava para ambientes de produção: Sites Web disponível apenas se enableBetaFeatures estiver ativo
+router.use((_req, res, next) => {
+  if (!config.enableBetaFeatures) {
+    return res.status(403).json({
+      error: 'O módulo de Sites Web está em desenvolvimento e temporariamente desabilitado em produção.',
+      code: 'FEATURE_DISABLED_IN_PRODUCTION',
+    });
+  }
+  next();
+});
 
 // Configura multer para upload temporário
 const upload = multer({

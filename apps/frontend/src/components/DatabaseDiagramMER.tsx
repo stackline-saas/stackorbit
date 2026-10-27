@@ -41,6 +41,24 @@ interface DiagramRelation {
   isInferred?: boolean;
 }
 
+const CARD_WIDTH = 250;
+const HEADER_HEIGHT = 33;
+const CONTAINER_PAD_TOP = 6;
+const ROW_HEIGHT = 20;
+
+/** Retorna as colunas visíveis em um card (máximo 5 se minimizado, todas se expandido) */
+function getDisplayedColumns(table: DatabaseTable, isExpanded: boolean): DatabaseColumn[] {
+  if (isExpanded) {
+    return table.columns;
+  }
+  const prioritized = [
+    ...table.columns.filter((c) => c.isPrimaryKey),
+    ...table.columns.filter((c) => !c.isPrimaryKey && c.isForeignKey),
+    ...table.columns.filter((c) => !c.isPrimaryKey && !c.isForeignKey),
+  ];
+  return prioritized.slice(0, 5);
+}
+
 export const DatabaseDiagramMER: React.FC<DatabaseDiagramMERProps> = ({
   tables,
   databaseName,
@@ -52,6 +70,7 @@ export const DatabaseDiagramMER: React.FC<DatabaseDiagramMERProps> = ({
   const [positions, setPositions] = useState<Record<string, TablePosition>>({});
   const [selectedTable, setSelectedTable] = useState<string | null>(focusedTableName || null);
   const [hoveredLine, setHoveredLine] = useState<string | null>(null);
+  const [hoveredColumn, setHoveredColumn] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [viewScope, setViewScope] = useState<'focused' | 'all'>(focusedTableName ? 'focused' : 'all');
 
@@ -108,7 +127,6 @@ export const DatabaseDiagramMER: React.FC<DatabaseDiagramMERProps> = ({
         }
 
         if (candidateName) {
-          // Busca correspondência com tabelas existentes
           const targetTable =
             tableMap.get(candidateName) ||
             tableMap.get(`${candidateName}s`) ||
@@ -148,10 +166,7 @@ export const DatabaseDiagramMER: React.FC<DatabaseDiagramMERProps> = ({
     }
 
     const focusedLower = focusedTableName.toLowerCase();
-
-    // Relações que saem da tabela em foco
     const outgoingTargetNames = new Set<string>();
-    // Relações que chegam na tabela em foco
     const incomingSourceNames = new Set<string>();
 
     allRelations.forEach((rel) => {
@@ -233,7 +248,7 @@ export const DatabaseDiagramMER: React.FC<DatabaseDiagramMERProps> = ({
     } else {
       // 2. MODO GERAL: Grid Espaçado e Limpo
       const cols = Math.max(3, Math.ceil(Math.sqrt(tables.length * 1.5)));
-      const colWidth = 260;
+      const colWidth = CARD_WIDTH;
       const rowHeight = 240;
 
       tables.forEach((table, index) => {
@@ -469,7 +484,7 @@ export const DatabaseDiagramMER: React.FC<DatabaseDiagramMERProps> = ({
         </div>
       </div>
 
-      {/* SVG Canvas de Conexões de Relações */}
+      {/* SVG Canvas de Conexões de Relações Ancoradas nos Campos */}
       <svg
         className="absolute inset-0 w-full h-full pointer-events-none z-10"
         style={{
@@ -500,15 +515,64 @@ export const DatabaseDiagramMER: React.FC<DatabaseDiagramMERProps> = ({
           </marker>
         </defs>
 
-        {activeRelations.map((rel, relIdx) => {
+        {activeRelations.map((rel) => {
           const fromPos = positions[rel.fromTable];
           const toPos = positions[rel.toTable];
           if (!fromPos || !toPos) return null;
 
           const fromTable = tables.find((t) => t.name === rel.fromTable);
           const toTable = tables.find((t) => t.name === rel.toTable);
+          if (!fromTable || !toTable) return null;
 
-          // Verifica se a relação envolve a tabela selecionada ou focada
+          const isFromExpanded = !!expandedTables[rel.fromTable];
+          const isToExpanded = !!expandedTables[rel.toTable];
+
+          // Descobre as colunas exibidas em cada tabela
+          const fromDisplayed = getDisplayedColumns(fromTable, isFromExpanded);
+          const toDisplayed = getDisplayedColumns(toTable, isToExpanded);
+
+          // Posição vertical exata da coluna no card
+          const fromRowIdx = fromDisplayed.findIndex((c) => c.name === rel.fromColumn);
+          const toRowIdx = toDisplayed.findIndex((c) => c.name === rel.toColumn);
+
+          // Coordenada Y precisa ancorada no campo exato
+          const startY =
+            fromRowIdx >= 0
+              ? fromPos.y + 48 + fromRowIdx * ROW_HEIGHT
+              : fromPos.y + 48 + fromDisplayed.length * ROW_HEIGHT + 8;
+
+          const endY =
+            toRowIdx >= 0
+              ? toPos.y + 48 + toRowIdx * ROW_HEIGHT
+              : toPos.y + 48 + toDisplayed.length * ROW_HEIGHT + 8;
+
+          // Determina a direção horizontal da linha
+          const isSameColumn = Math.abs(fromPos.x - toPos.x) < 80;
+          let startX = 0;
+          let endX = 0;
+          let pathD = '';
+
+          if (isSameColumn) {
+            // Tabelas empilhadas verticalmente: contorna suavemente pela direita do card
+            startX = fromPos.x + CARD_WIDTH;
+            endX = toPos.x + CARD_WIDTH;
+            const loopOffset = 45;
+            const cp1X = startX + loopOffset;
+            const cp2X = endX + loopOffset;
+            pathD = `M ${startX} ${startY} C ${cp1X} ${startY}, ${cp2X} ${endY}, ${endX} ${endY}`;
+          } else {
+            const fromLeft = fromPos.x > toPos.x;
+            startX = fromLeft ? fromPos.x : fromPos.x + CARD_WIDTH;
+            endX = fromLeft ? toPos.x + CARD_WIDTH : toPos.x;
+
+            const deltaX = Math.abs(endX - startX);
+            const curvature = Math.max(50, deltaX * 0.45);
+            const cp1X = fromLeft ? startX - curvature : startX + curvature;
+            const cp2X = fromLeft ? endX + curvature : endX - curvature;
+            pathD = `M ${startX} ${startY} C ${cp1X} ${startY}, ${cp2X} ${endY}, ${endX} ${endY}`;
+          }
+
+          // Destaque de relações
           const isRelatedToFocus =
             focusedTableName &&
             (rel.fromTable.toLowerCase() === focusedTableName.toLowerCase() ||
@@ -518,44 +582,10 @@ export const DatabaseDiagramMER: React.FC<DatabaseDiagramMERProps> = ({
             selectedTable &&
             (rel.fromTable === selectedTable || rel.toTable === selectedTable);
 
-          const isHovered = hoveredLine === rel.key;
-
-          // Descobre o índice da coluna de saída para ancoragem precisa
-          const fromColIdx = fromTable?.columns.findIndex((c) => c.name === rel.fromColumn) ?? -1;
-          const toColIdx = toTable?.columns.findIndex((c) => c.name === rel.toColumn) ?? -1;
-
-          const isFromExpanded = !!expandedTables[rel.fromTable];
-          const isToExpanded = !!expandedTables[rel.toTable];
-
-          // Se a coluna estiver visível no card (máx 5 se minimizada, ou qualquer se expandida), ancora nela
-          const fromColVisible = isFromExpanded || (fromColIdx >= 0 && fromColIdx < 5);
-          const toColVisible = isToExpanded || (toColIdx >= 0 && toColIdx < 5);
-
-          const startY = fromPos.y + (fromColVisible && fromColIdx >= 0 ? 36 + fromColIdx * 24 + 12 : 42 + (relIdx % 4) * 16);
-          const endY = toPos.y + (toColVisible && toColIdx >= 0 ? 36 + toColIdx * 24 + 12 : 42 + ((rel.fromTable.charCodeAt(0) + relIdx * 7) % 45));
-
-          const isSameColumn = Math.abs(fromPos.x - toPos.x) < 80;
-          let pathD = '';
-
-          if (isSameColumn) {
-            // Tabelas empilhadas verticalmente: a linha contorna suavemente pela direita
-            const startX = fromPos.x + 250;
-            const endX = toPos.x + 250;
-            const loopOffset = 50 + (relIdx % 4) * 20;
-            const cp1X = startX + loopOffset;
-            const cp2X = endX + loopOffset;
-            pathD = `M ${startX} ${startY} C ${cp1X} ${startY}, ${cp2X} ${endY}, ${endX} ${endY}`;
-          } else {
-            const fromLeft = fromPos.x > toPos.x;
-            const startX = fromLeft ? fromPos.x : fromPos.x + 250;
-            const endX = fromLeft ? toPos.x + 250 : toPos.x;
-
-            const deltaX = Math.abs(endX - startX);
-            const curvature = Math.max(50, deltaX * 0.45);
-            const cp1X = fromLeft ? startX - curvature : startX + curvature;
-            const cp2X = fromLeft ? endX + curvature : endX - curvature;
-            pathD = `M ${startX} ${startY} C ${cp1X} ${startY}, ${cp2X} ${endY}, ${endX} ${endY}`;
-          }
+          const isHovered =
+            hoveredLine === rel.key ||
+            hoveredColumn === `${rel.fromTable}.${rel.fromColumn}` ||
+            hoveredColumn === `${rel.toTable}.${rel.toColumn}`;
 
           const strokeColor = isHovered
             ? '#1d4ed8'
@@ -568,7 +598,7 @@ export const DatabaseDiagramMER: React.FC<DatabaseDiagramMERProps> = ({
 
           return (
             <g key={rel.key}>
-              {/* Linha visível */}
+              {/* Linha de conexão conectando campo a campo */}
               <path
                 d={pathD}
                 fill="none"
@@ -585,6 +615,28 @@ export const DatabaseDiagramMER: React.FC<DatabaseDiagramMERProps> = ({
                 onMouseEnter={() => setHoveredLine(rel.key)}
                 onMouseLeave={() => setHoveredLine(null)}
               />
+
+              {/* Ponto de ancoragem no campo de origem */}
+              <circle
+                cx={startX}
+                cy={startY}
+                r={isHovered ? 4.5 : 3.5}
+                fill={strokeColor}
+                opacity={strokeOpacity}
+              >
+                <title>{`${rel.fromTable}.${rel.fromColumn}`}</title>
+              </circle>
+
+              {/* Ponto de ancoragem no campo de destino */}
+              <circle
+                cx={endX}
+                cy={endY}
+                r={isHovered ? 4.5 : 3.5}
+                fill={strokeColor}
+                opacity={strokeOpacity}
+              >
+                <title>{`${rel.toTable}.${rel.toColumn}`}</title>
+              </circle>
             </g>
           );
         })}
@@ -604,18 +656,8 @@ export const DatabaseDiagramMER: React.FC<DatabaseDiagramMERProps> = ({
           const isSelected = selectedTable === table.name;
           const isExpanded = !!expandedTables[table.name];
 
-          // Ordenação prioritária de campos: PKs primeiro, depois FKs, depois demais colunas
-          const prioritizedColumns = [
-            ...table.columns.filter((c) => c.isPrimaryKey),
-            ...table.columns.filter((c) => !c.isPrimaryKey && c.isForeignKey),
-            ...table.columns.filter((c) => !c.isPrimaryKey && !c.isForeignKey),
-          ];
-
           // REGRA DOS 5 CAMPOS: quando minimizada exibe no máximo 5 campos; quando maximizada exibe todos
-          const displayedColumns = isExpanded
-            ? table.columns
-            : prioritizedColumns.slice(0, 5);
-
+          const displayedColumns = getDisplayedColumns(table, isExpanded);
           const hiddenCount = table.columns.length - displayedColumns.length;
 
           return (
@@ -627,7 +669,7 @@ export const DatabaseDiagramMER: React.FC<DatabaseDiagramMERProps> = ({
               style={{
                 left: `${pos.x}px`,
                 top: `${pos.y}px`,
-                width: '250px',
+                width: `${CARD_WIDTH}px`,
               }}
               className={`absolute bg-white rounded-xl shadow-md transition-shadow cursor-grab active:cursor-grabbing overflow-hidden z-20 border select-none ${
                 isFocusedMain
@@ -708,37 +750,48 @@ export const DatabaseDiagramMER: React.FC<DatabaseDiagramMERProps> = ({
                   isExpanded ? 'max-h-80 overflow-y-auto' : ''
                 }`}
               >
-                {displayedColumns.map((col: DatabaseColumn) => (
-                  <div
-                    key={col.name}
-                    className={`flex items-center justify-between px-1.5 py-0.5 rounded transition-colors ${
-                      col.isPrimaryKey
-                        ? 'bg-amber-50 text-amber-800 font-bold border border-amber-200/60'
-                        : col.isForeignKey
-                        ? 'bg-blue-50 text-blue-800 font-semibold border border-blue-200/60'
-                        : 'text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 truncate pr-1">
-                      {col.isPrimaryKey ? (
-                        <span title="Chave Primária (PK)">
-                          <Key className="w-2.5 h-2.5 text-amber-600 shrink-0" />
-                        </span>
-                      ) : col.isForeignKey ? (
-                        <span title="Chave Estrangeira (FK)">
-                          <LinkIcon className="w-2.5 h-2.5 text-blue-600 shrink-0" />
-                        </span>
-                      ) : (
-                        <span className="w-2.5 h-2.5 shrink-0" />
-                      )}
-                      <span className="truncate">{col.name}</span>
-                    </div>
+                {displayedColumns.map((col: DatabaseColumn) => {
+                  const colKey = `${table.name}.${col.name}`;
+                  const isColHovered =
+                    hoveredColumn === colKey ||
+                    hoveredLine?.includes(colKey);
 
-                    <span className="text-[9px] text-slate-400 uppercase shrink-0 font-sans">
-                      {col.type?.split('(')[0]}
-                    </span>
-                  </div>
-                ))}
+                  return (
+                    <div
+                      key={col.name}
+                      onMouseEnter={() => setHoveredColumn(colKey)}
+                      onMouseLeave={() => setHoveredColumn(null)}
+                      className={`flex items-center justify-between px-1.5 py-0.5 rounded transition-colors ${
+                        isColHovered
+                          ? 'bg-blue-100 text-blue-900 font-bold'
+                          : col.isPrimaryKey
+                          ? 'bg-amber-50 text-amber-800 font-bold border border-amber-200/60'
+                          : col.isForeignKey
+                          ? 'bg-blue-50 text-blue-800 font-semibold border border-blue-200/60'
+                          : 'text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 truncate pr-1">
+                        {col.isPrimaryKey ? (
+                          <span title="Chave Primária (PK)">
+                            <Key className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                          </span>
+                        ) : col.isForeignKey ? (
+                          <span title="Chave Estrangeira (FK)">
+                            <LinkIcon className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                          </span>
+                        ) : (
+                          <span className="w-2.5 h-2.5 shrink-0" />
+                        )}
+                        <span className="truncate">{col.name}</span>
+                      </div>
+
+                      <span className="text-[9px] text-slate-400 uppercase shrink-0 font-sans">
+                        {col.type?.split('(')[0]}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Rodapé: Botão de Expandir / Recolher Campos */}

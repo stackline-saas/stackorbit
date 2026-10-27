@@ -1,6 +1,7 @@
 import pg from 'pg';
 import mysql from 'mysql2/promise';
 import { Redis } from 'ioredis';
+import net from 'node:net';
 import { prisma } from '../db.js';
 import { dockerService } from './docker.service.js';
 import type {
@@ -100,6 +101,39 @@ export class DatabaseInspectorService {
     throw new Error(`Tipo de banco de dados não suportado para a imagem: ${service.image}`);
   }
 
+  // Cache de status de conectividade TCP direta (evita timeouts repetidos de 2.5s)
+  private tcpStatusCache = new Map<string, { reachable: boolean; lastChecked: number }>();
+
+  private async isTcpReachable(host: string, port: number, cacheKey: string): Promise<boolean> {
+    const cached = this.tcpStatusCache.get(cacheKey);
+    const now = Date.now();
+    if (cached && now - cached.lastChecked < 60_000) {
+      return cached.reachable;
+    }
+
+    // Teste ultrarrápido com socket TCP (timeout 150ms)
+    const reachable = await new Promise<boolean>((resolve) => {
+      const socket = new net.Socket();
+      socket.setTimeout(150);
+      socket.on('connect', () => {
+        socket.destroy();
+        resolve(true);
+      });
+      socket.on('timeout', () => {
+        socket.destroy();
+        resolve(false);
+      });
+      socket.on('error', () => {
+        socket.destroy();
+        resolve(false);
+      });
+      socket.connect(port, host);
+    });
+
+    this.tcpStatusCache.set(cacheKey, { reachable, lastChecked: now });
+    return reachable;
+  }
+
   // ==========================================
   // EXECUTOR RESILIENTE POSTGRESQL (TCP + DOCKER EXEC)
   // ==========================================
@@ -110,29 +144,34 @@ export class DatabaseInspectorService {
   ): Promise<any[]> {
     const db = targetDb || conn.database || 'postgres';
     const user = conn.user || 'postgres';
+    const cacheKey = `${conn.host}:${conn.port}`;
 
-    // 1. Tenta via TCP direto (rápido quando em rede Docker ou com porta exposta)
-    try {
-      const client = new pg.Client({
-        host: conn.host,
-        port: conn.port,
-        user,
-        password: conn.password,
-        database: db,
-        connectionTimeoutMillis: 2500,
-      });
-
-      await client.connect();
+    const canTcp = await this.isTcpReachable(conn.host, conn.port, cacheKey);
+    if (canTcp) {
       try {
-        const res = await client.query(sql);
-        return res.rows || [];
-      } finally {
-        await client.end().catch(() => {});
+        const client = new pg.Client({
+          host: conn.host,
+          port: conn.port,
+          user,
+          password: conn.password,
+          database: db,
+          connectionTimeoutMillis: 1200,
+        });
+
+        await client.connect();
+        try {
+          const res = await client.query(sql);
+          return res.rows || [];
+        } finally {
+          await client.end().catch(() => {});
+        }
+      } catch {
+        this.tcpStatusCache.set(cacheKey, { reachable: false, lastChecked: Date.now() });
+        return await this.queryPostgresViaDocker(conn, sql, db, user);
       }
-    } catch {
-      // 2. Se TCP falhar (ex: Windows local sem porta exposta), usa docker exec
-      return await this.queryPostgresViaDocker(conn, sql, db, user);
     }
+
+    return await this.queryPostgresViaDocker(conn, sql, db, user);
   }
 
   private async queryPostgresViaDocker(
@@ -192,28 +231,33 @@ export class DatabaseInspectorService {
     targetDb?: string
   ): Promise<any[]> {
     const db = targetDb || conn.database || 'default';
+    const cacheKey = `${conn.host}:${conn.port}`;
 
-    // 1. Tenta TCP
-    try {
-      const connection = await mysql.createConnection({
-        host: conn.host,
-        port: conn.port,
-        user: conn.user,
-        password: conn.password,
-        database: db,
-        connectTimeout: 2500,
-      });
-
+    const canTcp = await this.isTcpReachable(conn.host, conn.port, cacheKey);
+    if (canTcp) {
       try {
-        const [rows]: any = await connection.query(sql);
-        return Array.isArray(rows) ? rows : [rows];
-      } finally {
-        await connection.end().catch(() => {});
+        const connection = await mysql.createConnection({
+          host: conn.host,
+          port: conn.port,
+          user: conn.user,
+          password: conn.password,
+          database: db,
+          connectTimeout: 1200,
+        });
+
+        try {
+          const [rows]: any = await connection.query(sql);
+          return Array.isArray(rows) ? rows : [rows];
+        } finally {
+          await connection.end().catch(() => {});
+        }
+      } catch {
+        this.tcpStatusCache.set(cacheKey, { reachable: false, lastChecked: Date.now() });
+        return await this.queryMySQLViaDocker(conn, sql, db);
       }
-    } catch {
-      // 2. Fallback Docker Exec
-      return await this.queryMySQLViaDocker(conn, sql, db);
     }
+
+    return await this.queryMySQLViaDocker(conn, sql, db);
   }
 
   private async queryMySQLViaDocker(
@@ -271,10 +315,78 @@ export class DatabaseInspectorService {
   }
 
   /**
-   * Inspeção detalhada de PostgreSQL
+   * Consulta completa de metadados do PostgreSQL em uma única operação SQL instantânea
+   */
+  private async fetchPostgresCatalog(conn: DatabaseConnectionInfo, db: string): Promise<any> {
+    const allInOneSql = `
+      SELECT json_build_object(
+        'version', version(),
+        'tables', (
+          SELECT COALESCE(json_agg(table_name ORDER BY table_name), '[]'::json)
+          FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+        ),
+        'views', (
+          SELECT COALESCE(json_agg(table_name ORDER BY table_name), '[]'::json)
+          FROM information_schema.views
+          WHERE table_schema = 'public'
+        ),
+        'routines', (
+          SELECT COALESCE(json_agg(routine_name ORDER BY routine_name), '[]'::json)
+          FROM information_schema.routines
+          WHERE routine_schema = 'public'
+        ),
+        'columns', (
+          SELECT COALESCE(json_agg(c), '[]'::json)
+          FROM (
+            SELECT table_name, column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+            ORDER BY table_name, ordinal_position
+          ) c
+        ),
+        'pks', (
+          SELECT COALESCE(json_agg(p), '[]'::json)
+          FROM (
+            SELECT kcu.table_name, kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+              AND tc.table_schema = kcu.table_schema
+            WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = 'public'
+          ) p
+        ),
+        'fks', (
+          SELECT COALESCE(json_agg(f), '[]'::json)
+          FROM (
+            SELECT
+              tc.constraint_name,
+              kcu.table_name,
+              kcu.column_name,
+              ccu.table_name AS foreign_table_name,
+              ccu.column_name AS foreign_column_name
+            FROM information_schema.table_constraints AS tc
+            JOIN information_schema.key_column_usage AS kcu
+              ON tc.constraint_name = kcu.constraint_name
+              AND tc.table_schema = kcu.table_schema
+            JOIN information_schema.constraint_column_usage AS ccu
+              ON ccu.constraint_name = tc.constraint_name
+              AND ccu.table_schema = tc.table_schema
+            WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
+          ) f
+        )
+      );
+    `;
+
+    const rows = await this.queryPostgres(conn, allInOneSql, db);
+    return rows[0]?.json_build_object || rows[0] || null;
+  }
+
+  /**
+   * Inspeção ultra-rápida de PostgreSQL
    */
   private async inspectPostgres(conn: DatabaseConnectionInfo, requestedDb?: string): Promise<DatabaseCatalog> {
-    // 1. Descobre bancos de dados disponíveis na instância
+    // 1. Descobre bancos de dados disponíveis na instância de forma rápida
     let availableDatabases: string[] = [];
     try {
       const dbsRes = await this.queryPostgres(
@@ -287,107 +399,35 @@ export class DatabaseInspectorService {
       availableDatabases = [conn.database || 'postgres'];
     }
 
-    // 2. Determina o banco ativo (se o configurado estiver vazio, auto-detecta banco com tabelas)
+    // 2. Determina o banco ativo
     let activeDb = requestedDb || conn.database || 'postgres';
+    let data = await this.fetchPostgresCatalog(conn, activeDb);
 
-    const tablesQuery = `
-      SELECT table_name
-      FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-      ORDER BY table_name;
-    `;
-
-    let tablesRows = await this.queryPostgres(conn, tablesQuery, activeDb);
-
-    // Se o banco configurado tiver 0 tabelas, tenta os outros bancos encontrados
-    if (tablesRows.length === 0 && !requestedDb && availableDatabases.length > 0) {
+    // Se o banco configurado estiver vazio e o usuário não especificou banco, auto-seleciona banco com tabelas
+    if ((!data?.tables || data.tables.length === 0) && !requestedDb && availableDatabases.length > 0) {
       for (const candidateDb of availableDatabases) {
         if (candidateDb !== activeDb) {
           try {
-            const candRows = await this.queryPostgres(conn, tablesQuery, candidateDb);
-            if (candRows.length > 0) {
+            const candData = await this.fetchPostgresCatalog(conn, candidateDb);
+            if (candData?.tables && candData.tables.length > 0) {
               activeDb = candidateDb;
-              tablesRows = candRows;
+              data = candData;
               break;
             }
           } catch {
-            // continua tentando
+            // continua para o próximo
           }
         }
       }
     }
 
-    // 3. Versão
-    let version = 'PostgreSQL 16';
-    try {
-      const vRes = await this.queryPostgres(conn, 'SELECT version();', activeDb);
-      version = vRes[0]?.version || version;
-    } catch {
-      // ignore
-    }
-
-    // 4. Views
-    const viewsRows = await this.queryPostgres(
-      conn,
-      `SELECT table_name FROM information_schema.views WHERE table_schema = 'public' ORDER BY table_name;`,
-      activeDb
-    );
-
-    // 5. Funções / Procedures
-    const funcsRows = await this.queryPostgres(
-      conn,
-      `SELECT routine_name FROM information_schema.routines WHERE routine_schema = 'public' ORDER BY routine_name;`,
-      activeDb
-    );
-
-    // 6. Colunas
-    const columnsRows = await this.queryPostgres(
-      conn,
-      `SELECT 
-        table_name,
-        column_name,
-        data_type,
-        is_nullable,
-        column_default
-       FROM information_schema.columns
-       WHERE table_schema = 'public'
-       ORDER BY table_name, ordinal_position;`,
-      activeDb
-    );
-
-    // 7. Chaves Primárias
-    const pkRows = await this.queryPostgres(
-      conn,
-      `SELECT
-        kcu.table_name,
-        kcu.column_name
-       FROM information_schema.table_constraints tc
-       JOIN information_schema.key_column_usage kcu
-         ON tc.constraint_name = kcu.constraint_name
-         AND tc.table_schema = kcu.table_schema
-       WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = 'public';`,
-      activeDb
-    );
-
-    // 8. Chaves Estrangeiras (Foreign Keys)
-    const fkRows = await this.queryPostgres(
-      conn,
-      `SELECT
-        tc.constraint_name,
-        kcu.table_name,
-        kcu.column_name,
-        ccu.table_name AS foreign_table_name,
-        ccu.column_name AS foreign_column_name
-       FROM information_schema.table_constraints AS tc
-       JOIN information_schema.key_column_usage AS kcu
-         ON tc.constraint_name = kcu.constraint_name
-         AND tc.table_schema = kcu.table_schema
-       JOIN information_schema.constraint_column_usage AS ccu
-         ON ccu.constraint_name = tc.constraint_name
-         AND ccu.table_schema = tc.table_schema
-       WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public';`,
-      activeDb
-    );
+    const version = data?.version || 'PostgreSQL 16';
+    const rawTables: string[] = data?.tables || [];
+    const rawViews: string[] = data?.views || [];
+    const rawRoutines: string[] = data?.routines || [];
+    const columnsRows: any[] = data?.columns || [];
+    const pkRows: any[] = data?.pks || [];
+    const fkRows: any[] = data?.fks || [];
 
     // Mapeia PKs e FKs
     const pkMap: Record<string, string[]> = {};
@@ -408,8 +448,7 @@ export class DatabaseInspectorService {
     });
 
     const tables: DatabaseTable[] = [];
-    for (const tRow of tablesRows) {
-      const tableName = tRow.table_name;
+    for (const tableName of rawTables) {
       const pks = pkMap[tableName] || [];
       const fks = fkMap[tableName] || [];
       const fkCols = new Set(fks.map((f) => f.column));
@@ -439,8 +478,8 @@ export class DatabaseInspectorService {
       databaseName: activeDb,
       version,
       tables,
-      views: viewsRows.map((r: any) => r.table_name),
-      functions: funcsRows.map((r: any) => r.routine_name),
+      views: rawViews,
+      functions: rawRoutines,
       availableDatabases: availableDatabases.length > 0 ? availableDatabases : [activeDb],
     };
   }

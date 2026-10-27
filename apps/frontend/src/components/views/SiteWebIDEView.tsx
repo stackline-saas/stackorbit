@@ -31,6 +31,7 @@ import {
   FileArchive,
   Terminal,
   Code2,
+  HardDrive,
 } from 'lucide-react';
 import type { Service, SiteFile } from '../../types/index.ts';
 import { SiteSFTPModal } from '../SiteSFTPModal.tsx';
@@ -56,10 +57,10 @@ export const SiteWebIDEView: React.FC = () => {
 
   // Editor Tabs State (VS Code style)
   const [openTabs, setOpenTabs] = useState<OpenFileTab[]>([]);
-  const [activeTabPath, setActiveTabPath] = useState<string>('__explorer__'); // '__explorer__' or file path
+  const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
 
-  // Monaco theme ('vs-dark' or 'light')
-  const [editorTheme, setEditorTheme] = useState<'vs-dark' | 'light'>('vs-dark');
+  // Monaco theme ('light' by default to match StackOrbit light aesthetic)
+  const [editorTheme, setEditorTheme] = useState<'light' | 'vs-dark'>('light');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
 
@@ -77,7 +78,6 @@ export const SiteWebIDEView: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-
   const token = localStorage.getItem('dm_auth_token') || '';
 
   // 1. Carrega dados do Serviço / Site
@@ -118,199 +118,185 @@ export const SiteWebIDEView: React.FC = () => {
     } finally {
       setIsLoadingFiles(false);
     }
-  }, [id, currentPath, token]);
+  }, [id, token, currentPath]);
 
   useEffect(() => {
     loadServiceDetails();
     loadFiles('/');
-  }, [loadServiceDetails]);
+  }, [loadServiceDetails, loadFiles]);
 
-  // Linguagem Monaco por extensão
-  const detectLanguage = (ext: string): string => {
-    switch (ext.toLowerCase()) {
-      case '.html':
-      case '.htm':
+  // Detecta linguagem do arquivo para o Monaco Editor
+  const detectLanguage = (filePath: string): string => {
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    switch (ext) {
+      case 'html':
+      case 'htm':
         return 'html';
-      case '.css':
+      case 'css':
         return 'css';
-      case '.scss':
-      case '.sass':
-      case '.less':
+      case 'scss':
         return 'scss';
-      case '.js':
-      case '.jsx':
-      case '.mjs':
+      case 'js':
+      case 'jsx':
         return 'javascript';
-      case '.ts':
-      case '.tsx':
+      case 'ts':
+      case 'tsx':
         return 'typescript';
-      case '.php':
-        return 'php';
-      case '.json':
+      case 'json':
         return 'json';
-      case '.xml':
-      case '.svg':
-        return 'xml';
-      case '.md':
-      case '.markdown':
-        return 'markdown';
-      case '.sql':
+      case 'php':
+        return 'php';
+      case 'sql':
         return 'sql';
-      case '.sh':
-      case '.bash':
-        return 'shell';
-      case '.yml':
-      case '.yaml':
+      case 'md':
+        return 'markdown';
+      case 'xml':
+      case 'svg':
+        return 'xml';
+      case 'yml':
+      case 'yaml':
         return 'yaml';
-      case '.env':
-      case '.ini':
-      case '.conf':
-      case '.htaccess':
-        return 'ini';
-      case '.py':
-        return 'python';
+      case 'sh':
+      case 'bash':
+        return 'shell';
+      case 'dockerfile':
+        return 'dockerfile';
       default:
         return 'plaintext';
     }
   };
 
-  // 3. Abrir arquivo no Editor VS Code
+  // Abrir arquivo em uma aba
   const handleOpenFile = async (file: SiteFile) => {
     if (file.isDirectory) {
-      setCurrentPath(file.path);
-      loadFiles(file.path);
-      setActiveTabPath('__explorer__');
+      navigateToFolder(file.path);
       return;
     }
 
-    // Se já estiver aberto em uma aba, foca nela
-    const existingIndex = openTabs.findIndex((t) => t.path === file.path);
-    if (existingIndex >= 0) {
+    // Se já estiver aberto, apenas foca na aba existente
+    const existing = openTabs.find((t) => t.path === file.path);
+    if (existing) {
       setActiveTabPath(file.path);
       return;
     }
 
-    // Busca conteúdo do arquivo no backend
+    // Carrega conteúdo do arquivo
     try {
       const res = await fetch(
         `/api/sites/${id}/files/content?path=${encodeURIComponent(file.path)}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      if (!res.ok) {
-        alert('Não foi possível abrir este arquivo para edição.');
-        return;
-      }
-      const data = await res.json();
-      const content = data.content || '';
-      const newTab: OpenFileTab = {
-        path: file.path,
-        name: file.name,
-        content,
-        initialContent: content,
-        isDirty: false,
-        language: detectLanguage(file.extension || ''),
-      };
-
-      setOpenTabs((prev) => [...prev, newTab]);
-      setActiveTabPath(file.path);
-    } catch (err) {
-      console.error('Erro ao abrir arquivo:', err);
-      alert('Erro ao carregar conteúdo do arquivo.');
-    }
-  };
-
-  // 4. Salvar arquivo ativo (Ctrl+S)
-  const handleSaveActiveFile = async () => {
-    const activeTab = openTabs.find((t) => t.path === activeTabPath);
-    if (!activeTab || !id) return;
-
-    setIsSaving(true);
-    setSaveSuccessMessage(null);
-    try {
-      const res = await fetch(`/api/sites/${id}/files/content`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          path: activeTab.path,
-          content: activeTab.content,
-        }),
-      });
 
       if (res.ok) {
-        setOpenTabs((prev) =>
-          prev.map((t) =>
-            t.path === activeTab.path
-              ? { ...t, initialContent: t.content, isDirty: false }
-              : t
-          )
-        );
-        setSaveSuccessMessage('Arquivo salvo com sucesso!');
-        setTimeout(() => setSaveSuccessMessage(null), 3000);
-        loadFiles(currentPath);
+        const data = await res.json();
+        const newTab: OpenFileTab = {
+          path: file.path,
+          name: file.name,
+          content: data.content ?? '',
+          initialContent: data.content ?? '',
+          isDirty: false,
+          language: detectLanguage(file.name),
+        };
+
+        setOpenTabs((prev) => [...prev, newTab]);
+        setActiveTabPath(file.path);
       } else {
         const errData = await res.json();
-        alert(`Erro ao salvar arquivo: ${errData.error || 'Falha no servidor'}`);
+        alert(errData.error || 'Não foi possível abrir este arquivo para edição.');
       }
-    } catch (err) {
-      console.error('Erro ao salvar:', err);
-      alert('Erro de conexão ao salvar arquivo.');
-    } finally {
-      setIsSaving(false);
+    } catch {
+      alert('Erro de conexão ao carregar o conteúdo do arquivo.');
     }
   };
 
-  // Atalho de teclado Ctrl+S
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        if (activeTabPath !== '__explorer__') {
-          handleSaveActiveFile();
-        }
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTabPath, openTabs]);
-
   // Fechar aba
-  const handleCloseTab = (tabPath: string, e?: React.MouseEvent) => {
+  const handleCloseTab = (path: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    const tabToClose = openTabs.find((t) => t.path === tabPath);
+    const tabToClose = openTabs.find((t) => t.path === path);
     if (tabToClose?.isDirty) {
-      if (!window.confirm(`O arquivo "${tabToClose.name}" possui alterações não salvas. Deseja fechar mesmo assim?`)) {
-        return;
-      }
+      const confirmClose = window.confirm(
+        `O arquivo "${tabToClose.name}" possui alterações não salvas. Deseja fechar sem salvar?`
+      );
+      if (!confirmClose) return;
     }
 
-    const remaining = openTabs.filter((t) => t.path !== tabPath);
+    const remaining = openTabs.filter((t) => t.path !== path);
     setOpenTabs(remaining);
 
-    if (activeTabPath === tabPath) {
+    if (activeTabPath === path) {
       if (remaining.length > 0) {
         setActiveTabPath(remaining[remaining.length - 1].path);
       } else {
-        setActiveTabPath('__explorer__');
+        setActiveTabPath(null);
       }
     }
   };
 
-  // Criar novo arquivo
-  const handleCreateNewFile = async () => {
-    if (!newItemName.trim() || !id) return;
+  // Salvar arquivo ativo
+  const handleSaveActiveFile = async () => {
+    const tab = openTabs.find((t) => t.path === activeTabPath);
+    if (!tab || !id) return;
+
+    setIsSaving(true);
     try {
-      const res = await fetch(`/api/sites/${id}/files/new-file`, {
+      const res = await fetch(`/api/sites/${id}/files/content`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          path: currentPath,
-          fileName: newItemName.trim(),
+          path: tab.path,
+          content: tab.content,
+        }),
+      });
+
+      if (res.ok) {
+        setOpenTabs((prev) =>
+          prev.map((t) =>
+            t.path === tab.path ? { ...t, isDirty: false, initialContent: t.content } : t
+          )
+        );
+        setSaveSuccessMessage(`"${tab.name}" salvo com sucesso!`);
+        setTimeout(() => setSaveSuccessMessage(null), 3000);
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Erro ao salvar o arquivo no container.');
+      }
+    } catch {
+      alert('Erro ao conectar com o servidor para salvar o arquivo.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Atalho de teclado Ctrl+S para salvar
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSaveActiveFile();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeTabPath, openTabs]);
+
+  // Criar novo arquivo
+  const handleCreateFile = async () => {
+    if (!newItemName.trim() || !id) return;
+    const targetPath =
+      currentPath === '/' ? `/${newItemName.trim()}` : `${currentPath}/${newItemName.trim()}`;
+
+    try {
+      const res = await fetch(`/api/sites/${id}/files/content`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          path: targetPath,
           content: '',
         }),
       });
@@ -320,38 +306,37 @@ export const SiteWebIDEView: React.FC = () => {
         setNewItemName('');
         await loadFiles(currentPath);
         // Abre imediatamente no editor
-        const fullNewPath = currentPath === '/' ? `/${newItemName.trim()}` : `${currentPath}/${newItemName.trim()}`;
         handleOpenFile({
-          name: newItemName.trim(),
-          path: fullNewPath,
+          name: targetPath.split('/').pop() || '',
+          path: targetPath,
           isDirectory: false,
           size: 0,
+          extension: '.' + (targetPath.split('.').pop() || ''),
           mtime: new Date().toISOString(),
-          extension: `.${newItemName.trim().split('.').pop()}`,
         });
       } else {
-        const errData = await res.json();
-        alert(errData.error || 'Erro ao criar arquivo.');
+        const data = await res.json();
+        alert(data.error || 'Erro ao criar arquivo.');
       }
     } catch {
-      alert('Erro de rede ao criar arquivo.');
+      alert('Erro de conexão ao criar arquivo.');
     }
   };
 
   // Criar nova pasta
-  const handleCreateNewFolder = async () => {
+  const handleCreateFolder = async () => {
     if (!newItemName.trim() || !id) return;
+    const targetPath =
+      currentPath === '/' ? `/${newItemName.trim()}` : `${currentPath}/${newItemName.trim()}`;
+
     try {
-      const res = await fetch(`/api/sites/${id}/files/new-folder`, {
+      const res = await fetch(`/api/sites/${id}/files/mkdir`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          path: currentPath,
-          folderName: newItemName.trim(),
-        }),
+        body: JSON.stringify({ path: targetPath }),
       });
 
       if (res.ok) {
@@ -359,79 +344,100 @@ export const SiteWebIDEView: React.FC = () => {
         setNewItemName('');
         loadFiles(currentPath);
       } else {
-        const errData = await res.json();
-        alert(errData.error || 'Erro ao criar pasta.');
+        const data = await res.json();
+        alert(data.error || 'Erro ao criar diretório.');
       }
     } catch {
-      alert('Erro ao criar pasta.');
+      alert('Erro de conexão ao criar pasta.');
     }
   };
 
   // Excluir arquivo ou pasta
-  const handleDeleteItem = async (file: SiteFile) => {
+  const handleDeleteItem = async (file: SiteFile, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!id) return;
     const isDir = file.isDirectory;
-    if (!window.confirm(`Tem certeza que deseja excluir ${isDir ? 'a pasta e todo seu conteúdo' : 'o arquivo'} "${file.name}"?`)) {
-      return;
-    }
+    const confirmDelete = window.confirm(
+      `Tem certeza que deseja excluir ${isDir ? 'a pasta' : 'o arquivo'} "${file.name}" permanentemente do container?`
+    );
+    if (!confirmDelete) return;
 
     try {
-      const res = await fetch(`/api/sites/${id}/files?path=${encodeURIComponent(file.path)}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(
+        `/api/sites/${id}/files?path=${encodeURIComponent(file.path)}&isDir=${isDir}`,
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
 
       if (res.ok) {
-        // Se estava aberto no editor, fecha a aba
-        handleCloseTab(file.path);
+        if (!isDir) {
+          handleCloseTab(file.path);
+        }
         loadFiles(currentPath);
       } else {
-        const errData = await res.json();
-        alert(errData.error || 'Erro ao excluir item.');
+        const data = await res.json();
+        alert(data.error || 'Erro ao excluir item.');
       }
     } catch {
-      alert('Erro ao excluir item.');
+      alert('Erro de conexão ao excluir.');
     }
   };
 
-  // Renomear
+  // Renomear arquivo ou pasta
   const handleRename = async () => {
     if (!renameDialog || !newItemName.trim() || !id) return;
+    const parent = renameDialog.oldPath.substring(0, renameDialog.oldPath.lastIndexOf('/')) || '/';
+    const newPath = parent === '/' ? `/${newItemName.trim()}` : `${parent}/${newItemName.trim()}`;
+
     try {
       const res = await fetch(`/api/sites/${id}/files/rename`, {
-        method: 'PUT',
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           oldPath: renameDialog.oldPath,
-          newName: newItemName.trim(),
+          newPath,
         }),
       });
 
       if (res.ok) {
         setRenameDialog(null);
         setNewItemName('');
+        // Atualiza aba aberta se renomeou
+        setOpenTabs((prev) =>
+          prev.map((t) =>
+            t.path === renameDialog.oldPath
+              ? { ...t, path: newPath, name: newItemName.trim(), language: detectLanguage(newPath) }
+              : t
+          )
+        );
+        if (activeTabPath === renameDialog.oldPath) {
+          setActiveTabPath(newPath);
+        }
         loadFiles(currentPath);
       } else {
-        const errData = await res.json();
-        alert(errData.error || 'Erro ao renomear.');
+        const data = await res.json();
+        alert(data.error || 'Erro ao renomear item.');
       }
     } catch {
-      alert('Erro ao renomear.');
+      alert('Erro de conexão ao renomear.');
     }
   };
 
   // Upload de arquivos
-  const handleUploadFiles = async (filesToUpload: FileList | File[]) => {
-    if (!filesToUpload || filesToUpload.length === 0 || !id) return;
+  const handleFileUpload = async (filesList: FileList | null) => {
+    if (!filesList || filesList.length === 0 || !id) return;
 
-    setUploadStatus(`Enviando ${filesToUpload.length} arquivo(s)...`);
+    setUploadStatus(`Enviando ${filesList.length} arquivo(s)...`);
     const formData = new FormData();
-    formData.append('path', currentPath);
+    formData.append('targetPath', currentPath);
 
-    for (let i = 0; i < filesToUpload.length; i++) {
-      formData.append('files', filesToUpload[i]);
+    for (let i = 0; i < filesList.length; i++) {
+      formData.append('files', filesList[i]);
     }
 
     try {
@@ -447,48 +453,18 @@ export const SiteWebIDEView: React.FC = () => {
         loadFiles(currentPath);
       } else {
         const data = await res.json();
-        alert(data.error || 'Erro ao realizar upload.');
+        alert(data.error || 'Erro no envio dos arquivos.');
         setUploadStatus(null);
       }
     } catch {
-      alert('Falha de conexão no upload.');
+      alert('Erro de conexão durante o upload.');
       setUploadStatus(null);
     }
   };
 
-  // Extrair ZIP
-  const handleExtractZip = async (zipFile: SiteFile) => {
-    if (!id) return;
-    setExtractingZipPath(zipFile.path);
-    try {
-      const res = await fetch(`/api/sites/${id}/files/extract`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          zipPath: zipFile.path,
-          targetDir: currentPath,
-        }),
-      });
-
-      if (res.ok) {
-        alert('Arquivo ZIP extraído com sucesso no diretório atual!');
-        loadFiles(currentPath);
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Erro ao extrair ZIP.');
-      }
-    } catch {
-      alert('Erro de conexão ao extrair ZIP.');
-    } finally {
-      setExtractingZipPath(null);
-    }
-  };
-
   // Baixar arquivo ou pasta em ZIP
-  const handleDownload = (file: SiteFile) => {
+  const handleDownload = (file: SiteFile, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (!id) return;
     const downloadUrl = `/api/sites/${id}/files/download?path=${encodeURIComponent(file.path)}`;
     const link = document.createElement('a');
@@ -503,7 +479,6 @@ export const SiteWebIDEView: React.FC = () => {
   const navigateToFolder = (targetPath: string) => {
     setCurrentPath(targetPath);
     loadFiles(targetPath);
-    setActiveTabPath('__explorer__');
   };
 
   const navigateUp = () => {
@@ -537,7 +512,7 @@ export const SiteWebIDEView: React.FC = () => {
     }
     const ext = (file.extension || '').toLowerCase();
     if (ext === '.zip' || ext === '.tar' || ext === '.gz') {
-      return <Archive className="w-4 h-4 text-purple-500 shrink-0" />;
+      return <Archive className="w-4 h-4 text-purple-600 shrink-0" />;
     }
     if (ext === '.html' || ext === '.htm') {
       return <FileCode className="w-4 h-4 text-orange-500 shrink-0" />;
@@ -546,45 +521,45 @@ export const SiteWebIDEView: React.FC = () => {
       return <FileCode className="w-4 h-4 text-blue-500 shrink-0" />;
     }
     if (ext === '.js' || ext === '.jsx' || ext === '.ts' || ext === '.tsx') {
-      return <FileCode className="w-4 h-4 text-yellow-500 shrink-0" />;
+      return <FileCode className="w-4 h-4 text-amber-600 shrink-0" />;
     }
     if (ext === '.php') {
-      return <FileCode className="w-4 h-4 text-indigo-500 shrink-0" />;
+      return <FileCode className="w-4 h-4 text-indigo-600 shrink-0" />;
     }
     if (ext === '.json') {
-      return <FileJson className="w-4 h-4 text-emerald-500 shrink-0" />;
+      return <FileJson className="w-4 h-4 text-emerald-600 shrink-0" />;
     }
-    return <FileText className="w-4 h-4 text-slate-400 shrink-0" />;
+    return <FileText className="w-4 h-4 text-slate-500 shrink-0" />;
   };
 
   return (
-    <div className="flex flex-col h-screen w-full bg-slate-900 text-slate-100 font-sans overflow-hidden select-none">
-      {/* 1. BARRA SUPERIOR (HEADER GLOBAL DA WEB IDE) */}
-      <header className="h-14 bg-slate-950 border-b border-slate-800 px-4 flex items-center justify-between gap-4 shrink-0 z-20">
+    <div className="flex flex-col h-screen w-full bg-slate-50 text-slate-800 font-sans overflow-hidden select-none">
+      {/* 1. BARRA SUPERIOR (HEADER LIMPO E CLARO) */}
+      <header className="h-14 bg-white border-b border-slate-200 px-4 flex items-center justify-between gap-4 shrink-0 z-20 shadow-2xs">
         {/* Esquerda: Voltar + Identificação do Site */}
         <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
             onClick={() => navigate('/sites')}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-bold border border-slate-800 transition-colors shadow-2xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 rounded-xl text-xs font-bold border border-slate-200 transition-colors shadow-2xs"
             title="Voltar para a lista de Sites Web"
           >
-            <ArrowLeft className="w-4 h-4 text-slate-400" />
+            <ArrowLeft className="w-4 h-4 text-slate-500" />
             <span className="hidden sm:inline">Sites</span>
           </button>
 
-          <div className="h-5 w-px bg-slate-800 hidden sm:block" />
+          <div className="h-5 w-px bg-slate-200 hidden sm:block" />
 
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 shrink-0">
               <Code2 className="w-4 h-4" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-white truncate">
+                <span className="text-sm font-bold text-slate-900 truncate">
                   {service?.name || 'Carregando Site...'}
                 </span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 font-semibold">
                   {service?.image || 'web'}
                 </span>
               </div>
@@ -593,7 +568,7 @@ export const SiteWebIDEView: React.FC = () => {
                   href={`https://${service.domains[0].domainName}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[11px] text-blue-400 hover:underline flex items-center gap-1 truncate"
+                  className="text-[11px] text-blue-600 hover:underline flex items-center gap-1 truncate"
                 >
                   <span>{service.domains[0].domainName}</span>
                   <ExternalLink className="w-3 h-3" />
@@ -606,36 +581,36 @@ export const SiteWebIDEView: React.FC = () => {
         {/* Centro: Status de Salvamento / Notificações */}
         <div className="hidden md:flex items-center gap-2 text-xs">
           {saveSuccessMessage && (
-            <span className="flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-full font-bold animate-in fade-in">
+            <span className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-bold animate-in fade-in">
               <Check className="w-3.5 h-3.5" />
               <span>{saveSuccessMessage}</span>
             </span>
           )}
           {uploadStatus && (
-            <span className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded-full font-bold animate-pulse">
+            <span className="flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-full font-bold animate-pulse">
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
               <span>{uploadStatus}</span>
             </span>
           )}
           {activeTab?.isDirty && (
-            <span className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-full font-mono text-[11px]">
-              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+            <span className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-full font-mono text-[11px] font-semibold">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
               <span>Alterações não salvas (Ctrl+S)</span>
             </span>
           )}
         </div>
 
-        {/* Direita: Ações Rápidas (Salvar, SFTP, Tema, Novo Arquivo) */}
+        {/* Direita: Ações Rápidas (Salvar, SFTP, Tema) */}
         <div className="flex items-center gap-2">
-          {activeTabPath !== '__explorer__' && (
+          {activeTab && (
             <button
               type="button"
               onClick={handleSaveActiveFile}
               disabled={isSaving || !activeTab?.isDirty}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs ${
                 activeTab?.isDirty
-                  ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20'
-                  : 'bg-slate-800 text-slate-400 border border-slate-700 cursor-default'
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/20'
+                  : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-default'
               }`}
               title="Salvar alterações no container (Ctrl+S)"
             >
@@ -648,103 +623,128 @@ export const SiteWebIDEView: React.FC = () => {
             </button>
           )}
 
+          {/* Modal SFTP */}
           <button
             type="button"
             onClick={() => setIsSFTPModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-purple-950/40 text-purple-300 hover:text-purple-200 border border-purple-800/40 rounded-xl text-xs font-bold transition-colors shadow-2xs"
-            title="Credenciais SFTP para FileZilla"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold border border-slate-200 transition-colors shadow-2xs"
+            title="Acessar credenciais e instruções SFTP / FTP"
           >
-            <Key className="w-3.5 h-3.5 text-purple-400" />
+            <Key className="w-3.5 h-3.5 text-purple-600" />
             <span className="hidden sm:inline">SFTP / FTP</span>
           </button>
 
+          {/* Baixar ZIP Completo do Site */}
           <button
             type="button"
-            onClick={() => handleDownload({ name: service?.name || 'site', path: '/', isDirectory: true, size: 0, mtime: '', extension: '' })}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 rounded-xl text-xs font-bold transition-colors shadow-2xs"
+            onClick={() =>
+              handleDownload({
+                name: service?.name || 'site',
+                path: '/',
+                isDirectory: true,
+                size: 0,
+                extension: '',
+                mtime: new Date().toISOString(),
+              })
+            }
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold border border-slate-200 transition-colors shadow-2xs"
             title="Baixar todo o site compactado em ZIP"
           >
-            <Download className="w-3.5 h-3.5 text-slate-400" />
-            <span className="hidden lg:inline">Baixar ZIP</span>
+            <Download className="w-3.5 h-3.5 text-slate-600" />
+            <span className="hidden sm:inline">Baixar ZIP</span>
           </button>
 
-          {/* Alternar Tema Monaco */}
+          {/* Alternar Tema do Editor */}
           <button
             type="button"
-            onClick={() => setEditorTheme((prev) => (prev === 'vs-dark' ? 'light' : 'vs-dark'))}
-            className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 rounded-xl transition-colors"
-            title={`Alternar tema do editor (Atual: ${editorTheme})`}
+            onClick={() => setEditorTheme((prev) => (prev === 'light' ? 'vs-dark' : 'light'))}
+            className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl border border-slate-200 transition-colors shadow-2xs"
+            title={`Tema do Editor: ${editorTheme === 'light' ? 'Claro' : 'Escuro'}`}
           >
-            {editorTheme === 'vs-dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+            {editorTheme === 'light' ? <Sun className="w-3.5 h-3.5 text-amber-500" /> : <Moon className="w-3.5 h-3.5 text-blue-500" />}
           </button>
         </div>
       </header>
 
-      {/* 2. ÁREA PRINCIPAL SPLIT: ESQUERDA (PASTAS) & DIREITA (ARQUIVOS / VS CODE) */}
+      {/* 2. ÁREA DE TRABALHO (SIDEBAR DE ARQUIVOS NA ESQUERDA + EDITOR NA DIREITA) */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* ========================================================
-            COLUNA DA ESQUERDA: EXPLORADOR DE PASTAS (SIDEBAR)
+            PAINEL ESQUERDO: EXPLORADOR DE PASTAS E ARQUIVOS INTEGRADO
            ======================================================== */}
-        <aside className="w-72 sm:w-80 bg-slate-950/90 border-r border-slate-800/80 flex flex-col shrink-0">
-          {/* Header da Sidebar de Pastas */}
-          <div className="p-3 border-b border-slate-800/80 flex items-center justify-between bg-slate-900/40">
-            <div className="flex items-center gap-2">
-              <Folder className="w-4 h-4 text-blue-400" />
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                Pastas do Site
-              </span>
-            </div>
+        <aside className="w-72 md:w-80 bg-white border-r border-slate-200 flex flex-col shrink-0 select-none">
+          {/* Topo da Sidebar: Ações de Novo Arquivo, Nova Pasta, Upload */}
+          <div className="p-3 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+              <Folder className="w-3.5 h-3.5 text-blue-600" />
+              <span>Arquivos & Pastas</span>
+            </span>
 
             <div className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={() => {
                   setNewItemName('');
-                  setNewFolderDialog(true);
-                }}
-                className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                title="Criar nova pasta neste diretório"
-              >
-                <FolderPlus className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setNewItemName('');
                   setNewFileDialog(true);
                 }}
-                className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-slate-200/70 rounded-lg transition-colors"
                 title="Criar novo arquivo neste diretório"
               >
                 <FilePlus className="w-4 h-4" />
               </button>
               <button
                 type="button"
+                onClick={() => {
+                  setNewItemName('');
+                  setNewFolderDialog(true);
+                }}
+                className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-slate-200/70 rounded-lg transition-colors"
+                title="Criar nova pasta neste diretório"
+              >
+                <FolderPlus className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-slate-200/70 rounded-lg transition-colors"
+                title="Fazer upload de arquivos para esta pasta"
+              >
+                <Upload className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
                 onClick={() => loadFiles(currentPath)}
-                className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 rounded-lg transition-colors"
                 title="Atualizar lista de arquivos"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingFiles ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingFiles ? 'animate-spin text-blue-600' : ''}`} />
               </button>
             </div>
           </div>
 
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={(e) => handleFileUpload(e.target.files)}
+            multiple
+            className="hidden"
+          />
+
           {/* Navegação Rápida de Caminho / Raiz */}
-          <div className="p-2.5 border-b border-slate-800/60 bg-slate-950">
+          <div className="p-2 border-b border-slate-200 bg-white">
             <button
               type="button"
               onClick={() => navigateToFolder('/')}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 currentPath === '/'
-                  ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30 font-bold'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-900 border border-transparent'
+                  ? 'bg-blue-50 text-blue-700 border border-blue-200/80 font-bold'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent'
               }`}
             >
               <div className="flex items-center gap-2">
-                <Folder className="w-4 h-4 text-blue-500" />
+                <Folder className="w-4 h-4 text-blue-600" />
                 <span>Raiz do Site (/)</span>
               </div>
-              <span className="text-[10px] font-mono text-slate-500">public_html</span>
+              <span className="text-[10px] font-mono text-slate-400">public_html</span>
             </button>
 
             {/* Subir nível se estiver dentro de uma subpasta */}
@@ -752,193 +752,238 @@ export const SiteWebIDEView: React.FC = () => {
               <button
                 type="button"
                 onClick={navigateUp}
-                className="w-full mt-1 flex items-center gap-2 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-900 rounded-xl transition-colors border border-dashed border-slate-800"
+                className="w-full mt-1.5 flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors border border-dashed border-slate-300 font-medium"
               >
-                <ArrowLeft className="w-3.5 h-3.5 text-slate-500" />
-                <span>.. (Subir um nível)</span>
+                <ArrowLeft className="w-3.5 h-3.5 text-slate-400" />
+                <span>.. (Subir nível)</span>
+                <span className="ml-auto text-[10px] text-slate-400 font-mono truncate max-w-[120px]">
+                  {currentPath}
+                </span>
               </button>
             )}
           </div>
 
-          {/* Lista de Subpastas do Diretório Atual */}
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
-            <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-              Diretório Atual: <code className="text-slate-300 font-mono lowercase">{currentPath}</code>
-            </div>
-
-            {currentFolders.length === 0 ? (
-              <div className="p-4 text-center text-xs text-slate-500 italic">
-                Nenhuma subpasta neste nível
+          {/* ÁRVORE UNIFICADA: PASTAS E ARQUIVOS JUNTOS */}
+          <div
+            className="flex-1 overflow-y-auto p-2 space-y-1"
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragging(false);
+              handleFileUpload(e.dataTransfer.files);
+            }}
+          >
+            {isDragging && (
+              <div className="p-4 border-2 border-dashed border-blue-500 rounded-xl bg-blue-50 text-center text-xs text-blue-700 font-bold">
+                Solte os arquivos aqui para upload
               </div>
-            ) : (
-              currentFolders.map((folder) => {
-                const isSelected = currentPath === folder.path;
-                return (
+            )}
+
+            {/* Pastas */}
+            {currentFolders.length > 0 && (
+              <div className="space-y-0.5">
+                <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Pastas ({currentFolders.length})
+                </div>
+                {currentFolders.map((folder) => (
                   <div
                     key={folder.path}
-                    className={`group flex items-center justify-between px-2.5 py-2 rounded-xl text-xs transition-all cursor-pointer ${
-                      isSelected
-                        ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30 font-bold'
-                        : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-                    }`}
+                    className="group flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs cursor-pointer text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors"
                     onClick={() => navigateToFolder(folder.path)}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <FolderOpen className="w-4 h-4 text-amber-400 shrink-0" />
-                      <span className="truncate">{folder.name}</span>
+                    <div className="flex items-center gap-2 truncate pr-2">
+                      <Folder className="w-4 h-4 text-amber-500 shrink-0" />
+                      <span className="truncate font-semibold">{folder.name}</span>
                     </div>
 
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDownload(folder);
-                        }}
-                        className="p-1 hover:text-blue-400 rounded-md"
+                        onClick={(e) => handleDownload(folder, e)}
+                        className="p-1 text-slate-400 hover:text-slate-700 rounded"
                         title="Baixar pasta em ZIP"
                       >
                         <Download className="w-3.5 h-3.5" />
                       </button>
                       <button
                         type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteItem(folder);
-                        }}
-                        className="p-1 hover:text-rose-400 rounded-md"
+                        onClick={(e) => handleDeleteItem(folder, e)}
+                        className="p-1 text-slate-400 hover:text-red-600 rounded"
                         title="Excluir pasta"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
-                );
-              })
-            )}
-
-            {/* Seção com atalho para todos os arquivos abertos */}
-            {openTabs.length > 0 && (
-              <div className="pt-4 mt-4 border-t border-slate-800/80">
-                <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between">
-                  <span>Arquivos Abertos</span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300">
-                    {openTabs.length}
-                  </span>
-                </div>
-                <div className="space-y-0.5 mt-1">
-                  {openTabs.map((tab) => (
-                    <div
-                      key={tab.path}
-                      onClick={() => setActiveTabPath(tab.path)}
-                      className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs cursor-pointer transition-colors ${
-                        activeTabPath === tab.path
-                          ? 'bg-blue-600/20 text-blue-400 font-bold'
-                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <FileCode className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                        <span className="truncate">{tab.name}</span>
-                        {tab.isDirty && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => handleCloseTab(tab.path, e)}
-                        className="text-slate-500 hover:text-white p-0.5 rounded"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                ))}
               </div>
             )}
+
+            {/* Arquivos */}
+            <div className="space-y-0.5 pt-2">
+              <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                <span>Arquivos ({currentNonFolders.length})</span>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  {formatBytes(currentNonFolders.reduce((acc, f) => acc + (f.size || 0), 0))}
+                </span>
+              </div>
+
+              {currentNonFolders.length === 0 ? (
+                <div className="p-3 text-center text-xs text-slate-400 italic">
+                  Nenhum arquivo nesta pasta.
+                </div>
+              ) : (
+                currentNonFolders.map((file) => {
+                  const isOpen = openTabs.some((t) => t.path === file.path);
+                  const isActive = activeTabPath === file.path;
+
+                  return (
+                    <div
+                      key={file.path}
+                      onClick={() => handleOpenFile(file)}
+                      className={`group flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs cursor-pointer transition-colors ${
+                        isActive
+                          ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200'
+                          : isOpen
+                          ? 'bg-slate-100 text-slate-900 font-medium'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 truncate pr-2">
+                        {renderFileIcon(file)}
+                        <span className="truncate font-mono">{file.name}</span>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-slate-400 font-mono group-hover:hidden">
+                          {formatBytes(file.size || 0)}
+                        </span>
+
+                        <div className="hidden group-hover:flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={(e) => handleDownload(file, e)}
+                            className="p-1 text-slate-400 hover:text-slate-700 rounded"
+                            title="Baixar arquivo"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRenameDialog({ oldPath: file.path, oldName: file.name });
+                              setNewItemName(file.name);
+                            }}
+                            className="p-1 text-slate-400 hover:text-blue-600 rounded"
+                            title="Renomear"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteItem(file, e)}
+                            className="p-1 text-slate-400 hover:text-red-600 rounded"
+                            title="Excluir arquivo"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
 
-          {/* Rodapé da Sidebar: Atributos / Estatísticas */}
-          <div className="p-3 border-t border-slate-800/80 bg-slate-950 text-[11px] text-slate-500 flex items-center justify-between">
-            <span>{files.length} itens no diretório</span>
-            <span className="font-mono">{formatBytes(files.reduce((acc, f) => acc + (f.size || 0), 0))}</span>
+          {/* Rodapé da Sidebar */}
+          <div className="p-3 border-t border-slate-200 bg-slate-50 text-[11px] text-slate-500 flex items-center justify-between">
+            <span className="font-mono">{currentPath}</span>
+            <span>{files.length} itens</span>
           </div>
         </aside>
 
         {/* ========================================================
-            PAINEL PRINCIPAL: ABAS VS CODE & (EDITOR OU LISTA ARQUIVOS)
+            PAINEL PRINCIPAL: ABAS E EDITOR MONACO (ESTILO VS CODE)
            ======================================================== */}
-        <main className="flex-1 flex flex-col min-w-0 bg-slate-900 overflow-hidden">
+        <main className="flex-1 flex flex-col min-w-0 bg-white overflow-hidden">
           {/* BARRA DE ABAS ESTILO VS CODE */}
-          <div className="h-10 bg-slate-950 border-b border-slate-800 flex items-center px-2 gap-1 overflow-x-auto no-scrollbar shrink-0">
-            {/* Aba Fixa: Explorador de Arquivos */}
+          <div className="h-10 bg-slate-100 border-b border-slate-200 flex items-center px-2 gap-1 overflow-x-auto no-scrollbar shrink-0">
+            {openTabs.length === 0 ? (
+              <span className="text-xs text-slate-400 px-3 py-1 font-mono">Nenhum arquivo aberto</span>
+            ) : (
+              openTabs.map((tab) => {
+                const isActive = activeTabPath === tab.path;
+                return (
+                  <div
+                    key={tab.path}
+                    onClick={() => setActiveTabPath(tab.path)}
+                    className={`group flex items-center gap-2 px-3 py-1.5 rounded-t-lg text-xs font-semibold transition-all border-t-2 shrink-0 cursor-pointer max-w-[220px] ${
+                      isActive
+                        ? 'bg-white text-slate-900 border-blue-600 font-bold shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 border-transparent'
+                    }`}
+                  >
+                    <FileCode className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span className="truncate font-mono">{tab.name}</span>
+                    {tab.isDirty ? (
+                      <span
+                        className="w-2 h-2 rounded-full bg-amber-500 shrink-0"
+                        title="Alterações não salvas"
+                      />
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={(e) => handleCloseTab(tab.path, e)}
+                      className="p-0.5 text-slate-400 hover:text-slate-800 hover:bg-slate-200 rounded transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                );
+              })
+            )}
+
+            {/* Botão rápido para criar novo arquivo */}
             <button
               type="button"
-              onClick={() => setActiveTabPath('__explorer__')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-t-lg text-xs font-semibold transition-all border-t-2 shrink-0 ${
-                activeTabPath === '__explorer__'
-                  ? 'bg-slate-900 text-white border-blue-500 font-bold'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border-transparent'
-              }`}
+              onClick={() => {
+                setNewItemName('');
+                setNewFileDialog(true);
+              }}
+              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-md transition-colors ml-1"
+              title="Criar novo arquivo"
             >
-              <FolderOpen className="w-3.5 h-3.5 text-amber-400" />
-              <span>Explorador de Arquivos</span>
+              <Plus className="w-4 h-4" />
             </button>
-
-            {/* Abas Dinâmicas de Arquivos em Edição */}
-            {openTabs.map((tab) => {
-              const isActive = activeTabPath === tab.path;
-              return (
-                <div
-                  key={tab.path}
-                  onClick={() => setActiveTabPath(tab.path)}
-                  className={`group flex items-center gap-2 px-3.5 py-1.5 rounded-t-lg text-xs font-semibold transition-all border-t-2 shrink-0 cursor-pointer max-w-[200px] ${
-                    isActive
-                      ? 'bg-slate-900 text-white border-blue-500 font-bold'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border-transparent'
-                  }`}
-                >
-                  <FileCode className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                  <span className="truncate">{tab.name}</span>
-                  {tab.isDirty ? (
-                    <span
-                      className="w-2 h-2 rounded-full bg-amber-400 shrink-0"
-                      title="Alterações não salvas"
-                    />
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={(e) => handleCloseTab(tab.path, e)}
-                    className="p-0.5 text-slate-500 hover:text-white hover:bg-slate-800 rounded transition-colors"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              );
-            })}
           </div>
 
-          {/* CONTEÚDO: MODO EDITOR VS CODE */}
-          {activeTabPath !== '__explorer__' && activeTab ? (
-            <div className="flex-1 flex flex-col min-h-0 relative">
-              {/* Toolbar do Editor */}
-              <div className="h-9 bg-slate-900/90 border-b border-slate-800/80 px-4 flex items-center justify-between text-xs text-slate-400 shrink-0">
+          {/* CONTEÚDO PRINCIPAL: EDITOR OU TELA DE BOAS-VINDAS */}
+          {activeTab ? (
+            <div className="flex-1 flex flex-col min-h-0 relative bg-white">
+              {/* Barra de Status do Arquivo Aberto */}
+              <div className="h-8 bg-slate-50 border-b border-slate-200 px-4 flex items-center justify-between text-xs text-slate-600 shrink-0">
                 <div className="flex items-center gap-2 truncate font-mono text-[11px]">
-                  <span className="text-slate-500">Editando:</span>
-                  <span className="text-slate-200 font-bold">{activeTab.path}</span>
-                  <span className="text-slate-600">•</span>
-                  <span className="text-blue-400 uppercase">{activeTab.language}</span>
+                  <span className="text-slate-400">Caminho:</span>
+                  <span className="text-slate-800 font-bold">{activeTab.path}</span>
+                  <span className="text-slate-300">•</span>
+                  <span className="text-blue-600 uppercase font-semibold">{activeTab.language}</span>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <span className="text-[11px] font-mono text-slate-500">
+                <div className="flex items-center gap-4">
+                  <span className="text-[11px] font-mono text-slate-400">
                     Ln {cursorPos.line}, Col {cursorPos.col}
                   </span>
                   <button
                     type="button"
                     onClick={handleSaveActiveFile}
                     disabled={isSaving}
-                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs"
+                    className="px-2.5 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[11px] font-bold transition-colors flex items-center gap-1 shadow-2xs"
                   >
                     <Save className="w-3 h-3" />
                     <span>Salvar (Ctrl+S)</span>
@@ -953,8 +998,8 @@ export const SiteWebIDEView: React.FC = () => {
                   language={activeTab.language}
                   theme={editorTheme}
                   value={activeTab.content}
-                  onChange={(value) => {
-                    const newContent = value ?? '';
+                  onChange={(val) => {
+                    const newContent = val ?? '';
                     setOpenTabs((prev) =>
                       prev.map((t) =>
                         t.path === activeTab.path
@@ -965,252 +1010,58 @@ export const SiteWebIDEView: React.FC = () => {
                   }}
                   onMount={(editor) => {
                     editor.onDidChangeCursorPosition((e) => {
-                      setCursorPos({ line: e.position.lineNumber, col: e.position.column });
+                      setCursorPos({
+                        line: e.position.lineNumber,
+                        col: e.position.column,
+                      });
                     });
                   }}
                   options={{
                     minimap: { enabled: true },
                     fontSize: 13,
-                    fontFamily: "'JetBrains Mono', 'Fira Code', Menlo, Monaco, Consolas, monospace",
+                    fontFamily: "'Fira Code', 'Cascadia Code', Consolas, monospace",
                     fontLigatures: true,
                     lineNumbers: 'on',
-                    wordWrap: 'on',
+                    roundedSelection: false,
+                    scrollBeyondLastLine: false,
+                    readOnly: false,
                     automaticLayout: true,
                     tabSize: 2,
-                    scrollBeyondLastLine: false,
-                    padding: { top: 12, bottom: 12 },
-                    smoothScrolling: true,
-                    cursorBlinking: 'smooth',
+                    wordWrap: 'on',
                   }}
                 />
               </div>
-
-              {/* Barra de Rodapé Estilo VS Code */}
-              <div className="h-6 bg-blue-600 text-white px-3 flex items-center justify-between text-[11px] font-mono shrink-0 select-none">
-                <div className="flex items-center gap-4">
-                  <span>StackOrbit Web IDE</span>
-                  <span>UTF-8</span>
-                  <span>Espaços: 2</span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span>Ln {cursorPos.line}, Col {cursorPos.col}</span>
-                  <span className="uppercase font-bold">{activeTab.language}</span>
-                </div>
-              </div>
             </div>
           ) : (
-            /* CONTEÚDO: MODO EXPLORADOR DE ARQUIVOS (TABELA E GERENCIAMENTO) */
-            <div
-              className={`flex-1 flex flex-col min-h-0 p-4 sm:p-6 overflow-y-auto ${
-                isDragging ? 'bg-blue-950/20 border-2 border-dashed border-blue-500' : ''
-              }`}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setIsDragging(true);
-              }}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setIsDragging(false);
-                if (e.dataTransfer.files) {
-                  handleUploadFiles(e.dataTransfer.files);
-                }
-              }}
-            >
-              {/* Barra de Ações do Diretório */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 mb-4 border-b border-slate-800">
-                {/* Breadcrumb Navegável */}
-                <div className="flex items-center gap-1.5 text-xs font-semibold overflow-x-auto no-scrollbar">
-                  <button
-                    type="button"
-                    onClick={() => navigateToFolder('/')}
-                    className="text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1"
-                  >
-                    <Folder className="w-3.5 h-3.5" />
-                    <span>raiz</span>
-                  </button>
-
-                  {currentPath
-                    .split('/')
-                    .filter(Boolean)
-                    .map((segment, idx, arr) => {
-                      const segmentPath = '/' + arr.slice(0, idx + 1).join('/');
-                      const isLast = idx === arr.length - 1;
-                      return (
-                        <React.Fragment key={segmentPath}>
-                          <ChevronRight className="w-3.5 h-3.5 text-slate-600 shrink-0" />
-                          {isLast ? (
-                            <span className="text-slate-200 font-bold">{segment}</span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => navigateToFolder(segmentPath)}
-                              className="text-blue-400 hover:text-blue-300 hover:underline"
-                            >
-                              {segment}
-                            </button>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                </div>
-
-                {/* Botões de Ação na Pasta */}
-                <div className="flex items-center gap-2">
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    multiple
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files) handleUploadFiles(e.target.files);
-                    }}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-xs"
-                    title="Fazer upload de arquivos ou ZIPs"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    <span>Upload Arquivos</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewItemName('');
-                      setNewFileDialog(true);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold border border-slate-700 transition-colors"
-                  >
-                    <FilePlus className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Novo Arquivo</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewItemName('');
-                      setNewFolderDialog(true);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold border border-slate-700 transition-colors"
-                  >
-                    <FolderPlus className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Nova Pasta</span>
-                  </button>
-                </div>
+            /* Tela Vazia quando nenhum arquivo está aberto */
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50">
+              <div className="w-16 h-16 rounded-3xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 mb-4 shadow-sm">
+                <Code2 className="w-8 h-8" />
               </div>
-
-              {/* Tabela de Arquivos & Pastas */}
-              <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl overflow-hidden shadow-xl">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-800 bg-slate-900/60 text-slate-400 font-semibold uppercase tracking-wider text-[11px]">
-                      <th className="py-3 px-4">Nome do Arquivo / Pasta</th>
-                      <th className="py-3 px-4 hidden sm:table-cell">Tamanho</th>
-                      <th className="py-3 px-4 hidden md:table-cell">Modificado em</th>
-                      <th className="py-3 px-4 text-right">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60">
-                    {files.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="py-12 text-center text-slate-500">
-                          <Folder className="w-12 h-12 text-slate-700 mx-auto mb-2 opacity-50" />
-                          <p className="font-semibold text-slate-400">Esta pasta está vazia</p>
-                          <p className="text-xs text-slate-600 mt-1">
-                            Arraste arquivos aqui ou clique em "Upload Arquivos" para começar.
-                          </p>
-                        </td>
-                      </tr>
-                    ) : (
-                      files.map((file) => (
-                        <tr
-                          key={file.path}
-                          className="hover:bg-slate-800/40 transition-colors group cursor-pointer"
-                          onClick={() => handleOpenFile(file)}
-                        >
-                          <td className="py-3 px-4 font-medium text-slate-200">
-                            <div className="flex items-center gap-3">
-                              {renderFileIcon(file)}
-                              <span className="truncate group-hover:text-blue-400 transition-colors font-mono">
-                                {file.name}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="py-3 px-4 text-slate-400 font-mono text-[11px] hidden sm:table-cell">
-                            {file.isDirectory ? 'Pasta' : formatBytes(file.size || 0)}
-                          </td>
-                          <td className="py-3 px-4 text-slate-500 font-mono text-[11px] hidden md:table-cell">
-                            {file.mtime ? new Date(file.mtime).toLocaleString('pt-BR') : '-'}
-                          </td>
-                          <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center justify-end gap-1">
-                              {!file.isDirectory && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenFile(file)}
-                                  className="px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white rounded-lg text-[11px] font-bold transition-all"
-                                  title="Editar no Editor VS Code"
-                                >
-                                  Editar
-                                </button>
-                              )}
-
-                              {!file.isDirectory && file.extension === '.zip' && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleExtractZip(file)}
-                                  disabled={extractingZipPath === file.path}
-                                  className="p-1.5 text-purple-400 hover:text-purple-300 hover:bg-purple-950/40 rounded-lg transition-colors"
-                                  title="Extrair ZIP nesta pasta"
-                                >
-                                  {extractingZipPath === file.path ? (
-                                    <RefreshCw className="w-4 h-4 animate-spin" />
-                                  ) : (
-                                    <FileArchive className="w-4 h-4" />
-                                  )}
-                                </button>
-                              )}
-
-                              <button
-                                type="button"
-                                onClick={() => handleDownload(file)}
-                                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                                title={file.isDirectory ? 'Baixar pasta em ZIP' : 'Baixar arquivo'}
-                              >
-                                <Download className="w-4 h-4" />
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setRenameDialog({ oldPath: file.path, oldName: file.name });
-                                  setNewItemName(file.name);
-                                }}
-                                className="p-1.5 text-slate-400 hover:text-amber-400 hover:bg-slate-800 rounded-lg transition-colors"
-                                title="Renomear"
-                              >
-                                <Edit3 className="w-4 h-4" />
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteItem(file)}
-                                className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors"
-                                title="Excluir"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+              <h2 className="text-base font-bold text-slate-800 mb-1">Web IDE StackOrbit</h2>
+              <p className="text-xs text-slate-500 max-w-md mb-6 leading-relaxed">
+                Nenhum arquivo aberto no momento. Clique em qualquer arquivo na árvore da esquerda para editá-lo ou use os botões abaixo.
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewItemName('');
+                    setNewFileDialog(true);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Novo Arquivo</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-2xs"
+                >
+                  <Upload className="w-4 h-4 text-blue-600" />
+                  <span>Fazer Upload</span>
+                </button>
               </div>
             </div>
           )}
@@ -1219,41 +1070,39 @@ export const SiteWebIDEView: React.FC = () => {
 
       {/* MODAL: NOVO ARQUIVO */}
       {newFileDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
-              <FilePlus className="w-5 h-5 text-blue-400" />
-              <span>Criar Novo Arquivo</span>
-            </h3>
-            <p className="text-xs text-slate-400 mb-4">
-              Informe o nome e extensão (ex: <code>index.html</code>, <code>style.css</code>, <code>api.php</code>):
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <h3 className="text-sm font-bold text-slate-900 mb-1">Criar Novo Arquivo</h3>
+            <p className="text-xs text-slate-500 mb-4">
+              O arquivo será criado dentro de <code className="text-blue-600 font-mono">{currentPath}</code>
             </p>
             <input
               type="text"
-              autoFocus
               value={newItemName}
               onChange={(e) => setNewItemName(e.target.value)}
+              placeholder="ex: index.php, style.css, script.js"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono mb-4"
+              autoFocus
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreateNewFile();
+                if (e.key === 'Enter') handleCreateFile();
+                if (e.key === 'Escape') setNewFileDialog(false);
               }}
-              placeholder="ex: app.js"
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono text-sm focus:outline-none focus:border-blue-500 mb-4"
             />
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setNewFileDialog(false)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold"
+                className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-xl font-semibold"
               >
                 Cancelar
               </button>
               <button
                 type="button"
-                onClick={handleCreateNewFile}
+                onClick={handleCreateFile}
                 disabled={!newItemName.trim()}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold"
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all"
               >
-                Criar e Abrir
+                Criar Arquivo
               </button>
             </div>
           </div>
@@ -1262,39 +1111,37 @@ export const SiteWebIDEView: React.FC = () => {
 
       {/* MODAL: NOVA PASTA */}
       {newFolderDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
-              <FolderPlus className="w-5 h-5 text-amber-400" />
-              <span>Criar Nova Pasta</span>
-            </h3>
-            <p className="text-xs text-slate-400 mb-4">
-              Informe o nome da nova pasta dentro de <code>{currentPath}</code>:
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <h3 className="text-sm font-bold text-slate-900 mb-1">Criar Nova Pasta</h3>
+            <p className="text-xs text-slate-500 mb-4">
+              A subpasta será criada em <code className="text-blue-600 font-mono">{currentPath}</code>
             </p>
             <input
               type="text"
-              autoFocus
               value={newItemName}
               onChange={(e) => setNewItemName(e.target.value)}
+              placeholder="ex: assets, uploads, src"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono mb-4"
+              autoFocus
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreateNewFolder();
+                if (e.key === 'Enter') handleCreateFolder();
+                if (e.key === 'Escape') setNewFolderDialog(false);
               }}
-              placeholder="ex: assets, uploads, scripts"
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono text-sm focus:outline-none focus:border-blue-500 mb-4"
             />
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setNewFolderDialog(false)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold"
+                className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-xl font-semibold"
               >
                 Cancelar
               </button>
               <button
                 type="button"
-                onClick={handleCreateNewFolder}
+                onClick={handleCreateFolder}
                 disabled={!newItemName.trim()}
-                className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold"
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all"
               >
                 Criar Pasta
               </button>
@@ -1305,30 +1152,28 @@ export const SiteWebIDEView: React.FC = () => {
 
       {/* MODAL: RENOMEAR */}
       {renameDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
-              <Edit3 className="w-5 h-5 text-amber-400" />
-              <span>Renomear Item</span>
-            </h3>
-            <p className="text-xs text-slate-400 mb-4">
-              Novo nome para <code>{renameDialog.oldName}</code>:
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <h3 className="text-sm font-bold text-slate-900 mb-1">Renomear</h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Novo nome para: <code className="text-blue-600 font-mono">{renameDialog.oldName}</code>
             </p>
             <input
               type="text"
-              autoFocus
               value={newItemName}
               onChange={(e) => setNewItemName(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono mb-4"
+              autoFocus
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleRename();
+                if (e.key === 'Escape') setRenameDialog(null);
               }}
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono text-sm focus:outline-none focus:border-blue-500 mb-4"
             />
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setRenameDialog(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold"
+                className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-xl font-semibold"
               >
                 Cancelar
               </button>
@@ -1336,17 +1181,17 @@ export const SiteWebIDEView: React.FC = () => {
                 type="button"
                 onClick={handleRename}
                 disabled={!newItemName.trim() || newItemName === renameDialog.oldName}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold"
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all"
               >
-                Salvar Novo Nome
+                Salvar
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL SFTP CREDENCIAIS */}
-      {isSFTPModalOpen && service && (
+      {/* MODAL SFTP */}
+      {service && (
         <SiteSFTPModal
           isOpen={isSFTPModalOpen}
           onClose={() => setIsSFTPModalOpen(false)}

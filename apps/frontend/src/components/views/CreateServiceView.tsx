@@ -129,17 +129,18 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
           authFetch('/api/projects'),
           authFetch('/api/hosts'),
         ]);
+        let activeProj = '';
         if (projRes.ok) {
           const projs = await projRes.json();
           setProjectsList(projs);
-          const activeProj = localStorage.getItem('ddm_selected_project') || projs[0]?.id || '';
+          activeProj = localStorage.getItem('ddm_selected_project') || projs[0]?.id || '';
           setSelectedProjectId(activeProj);
         }
         if (hostsRes.ok) {
           const hList = await hostsRes.json();
           setHostsList(hList);
-          const defHost = hList.find((h: any) => h.isDefault) || hList[0];
-          if (defHost) setSelectedHostId(defHost.id);
+          const projectHost = (activeProj ? hList.find((h: any) => h.projectId === activeProj) : null) || hList.find((h: any) => h.isDefault) || hList[0];
+          if (projectHost) setSelectedHostId(projectHost.id);
         }
       } catch {}
     }
@@ -256,6 +257,8 @@ export const CreateServiceView: React.FC<CreateServiceViewProps> = ({ onSave }) 
         if (parsed.image) setImage(parsed.image);
         if (parsed.internalPort) setInternalPort(parsed.internalPort);
         if (parsed.sourceType) setSourceType(parsed.sourceType);
+        if (parsed.projectId) setSelectedProjectId(parsed.projectId);
+        if (parsed.dockerHostId) setSelectedHostId(parsed.dockerHostId);
       } catch {}
     }
   }, []);

@@ -9,40 +9,49 @@ const router = Router();
 // 1. List all containers
 router.get('/', requireAuth, async (req, res) => {
   const projectId = req.query.projectId as string | undefined;
+  const hostId = req.query.hostId as string | undefined;
   try {
-    let containers = await dockerService.listContainers();
-    const status = await dockerService.getStatus();
-
-    if (projectId) {
-      // Find containers belonging to this project's services
-      const projectServices = await prisma.service.findMany({
+    let resolvedHostId = hostId;
+    if (!resolvedHostId && projectId) {
+      const projectHost = await prisma.dockerHost.findFirst({
         where: { projectId },
-        select: { containerName: true },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
       });
-      const allowedNames = new Set(
-        projectServices.map((s: { containerName: string }) => s.containerName.toLowerCase().replace(/^[\/_]/, ''))
-      );
-
-      containers = containers.filter((c: any) => {
-        const cleanName = c.name.toLowerCase().replace(/^[\/_]/, '');
-        return (
-          allowedNames.has(cleanName) ||
-          projectServices.some((s: { containerName: string }) => cleanName.includes(s.containerName.toLowerCase()))
-        );
-      });
+      if (projectHost) {
+        resolvedHostId = projectHost.id;
+      }
     }
 
-    return res.json({ containers, status, projectId });
+    const containers = await dockerService.listContainers(resolvedHostId);
+    const status = await dockerService.getStatus(resolvedHostId);
+
+    return res.json({ containers, status, projectId, hostId: resolvedHostId });
   } catch (err: any) {
     return res.status(500).json({ error: `Erro ao consultar Docker Engine: ${err.message}` });
   }
 });
 
+// Helper to resolve hostId for actions
+async function resolveHostId(req: any): Promise<string | undefined> {
+  const hostId = (req.query.hostId as string) || (req.body?.hostId as string);
+  if (hostId) return hostId;
+  const projectId = (req.query.projectId as string) || (req.body?.projectId as string);
+  if (projectId) {
+    const projectHost = await prisma.dockerHost.findFirst({
+      where: { projectId },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+    });
+    if (projectHost) return projectHost.id;
+  }
+  return undefined;
+}
+
 // 2. Start container
 router.post('/:nameOrId/start', requireAuth, async (req: AuthenticatedRequest, res) => {
   const { nameOrId } = req.params;
   try {
-    await dockerService.startContainer(nameOrId);
+    const hostId = await resolveHostId(req);
+    await dockerService.startContainer(nameOrId, hostId);
 
     // Sincroniza Traefik em background
     traefikService.applyConfig(`Container start: ${nameOrId}`).catch((err) => {
@@ -69,7 +78,8 @@ router.post('/:nameOrId/start', requireAuth, async (req: AuthenticatedRequest, r
 router.post('/:nameOrId/stop', requireAuth, async (req: AuthenticatedRequest, res) => {
   const { nameOrId } = req.params;
   try {
-    await dockerService.stopContainer(nameOrId);
+    const hostId = await resolveHostId(req);
+    await dockerService.stopContainer(nameOrId, hostId);
 
     // Sincroniza Traefik em background
     traefikService.applyConfig(`Container stop: ${nameOrId}`).catch((err) => {
@@ -96,7 +106,8 @@ router.post('/:nameOrId/stop', requireAuth, async (req: AuthenticatedRequest, re
 router.post('/:nameOrId/restart', requireAuth, async (req: AuthenticatedRequest, res) => {
   const { nameOrId } = req.params;
   try {
-    await dockerService.restartContainer(nameOrId);
+    const hostId = await resolveHostId(req);
+    await dockerService.restartContainer(nameOrId, hostId);
 
     // Sincroniza Traefik em background
     traefikService.applyConfig(`Container restart: ${nameOrId}`).catch((err) => {
@@ -124,7 +135,8 @@ router.get('/:nameOrId/logs', requireAuth, async (req, res) => {
   const { nameOrId } = req.params;
   const tail = Number(req.query.tail) || 100;
   try {
-    const logs = await dockerService.getContainerLogs(nameOrId, tail);
+    const hostId = await resolveHostId(req);
+    const logs = await dockerService.getContainerLogs(nameOrId, tail, hostId);
     return res.json({ logs });
   } catch (err: any) {
     return res.status(500).json({ error: `Falha ao obter logs: ${err.message}` });

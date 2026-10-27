@@ -149,9 +149,26 @@ router.get('/', requireAuth, async (req, res) => {
 
 // Discover all Docker Compose projects on the Docker daemon
 router.get('/compose/discover', requireAuth, async (req, res) => {
+  const projectId = req.query.projectId as string | undefined;
+  const hostId = req.query.hostId as string | undefined;
+
+  let resolvedHostId = hostId;
+  if (!resolvedHostId && projectId) {
+    const projectHost = await prisma.dockerHost.findFirst({
+      where: { projectId },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+    });
+    if (projectHost) {
+      resolvedHostId = projectHost.id;
+    }
+  }
+
   try {
-    const allContainers = await dockerService.listContainers();
-    const services = await prisma.service.findMany({ select: { id: true, name: true, containerName: true, notes: true } });
+    const allContainers = await dockerService.listContainers(resolvedHostId);
+    const services = await prisma.service.findMany({
+      where: projectId ? { projectId } : undefined,
+      select: { id: true, name: true, containerName: true, notes: true },
+    });
 
     // Group containers by composeProject
     const projectMap = new Map<string, typeof allContainers>();

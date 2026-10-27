@@ -20,12 +20,16 @@ interface ImportComposeModalProps {
   isOpen: boolean;
   onClose: () => void;
   onImportSuccess: (service: Service) => void;
+  projectId?: string | null;
+  dockerHostId?: string | null;
 }
 
 export const ImportComposeModal: React.FC<ImportComposeModalProps> = ({
   isOpen,
   onClose,
   onImportSuccess,
+  projectId,
+  dockerHostId,
 }) => {
   const { authFetch } = useAuth();
   const { showNotification } = useNotification();
@@ -44,7 +48,8 @@ export const ImportComposeModal: React.FC<ImportComposeModalProps> = ({
   const fetchComposeProjects = async () => {
     setIsLoading(true);
     try {
-      const res = await authFetch('/api/services/compose/discover');
+      const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+      const res = await authFetch(`/api/services/compose/discover${query}`);
       if (res.ok) {
         const data = await res.json();
         setProjects(data);
@@ -64,7 +69,7 @@ export const ImportComposeModal: React.FC<ImportComposeModalProps> = ({
       fetchComposeProjects();
       setSelectedProject(null);
     }
-  }, [isOpen]);
+  }, [isOpen, projectId]);
 
   const handleSelectProject = (proj: ComposeProjectSummary) => {
     setSelectedProject(proj);
@@ -89,6 +94,8 @@ export const ImportComposeModal: React.FC<ImportComposeModalProps> = ({
           primaryContainerName: primaryContainer,
           internalPort: Number(internalPort),
           domainName: domainName.trim() || undefined,
+          projectId: projectId || undefined,
+          dockerHostId: dockerHostId || undefined,
         }),
       });
 

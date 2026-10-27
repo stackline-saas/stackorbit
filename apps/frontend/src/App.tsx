@@ -886,12 +886,15 @@ function MainApp() {
                           ? container.ports[0].privatePort
                           : 80;
                       const cleanName = container.name.replace(/^[\/_]/, '');
+                      const projectHost = hosts.find((h) => h.projectId === selectedProjectId);
                       navigate(`/services/new?prefill=${encodeURIComponent(JSON.stringify({
                         name: cleanName.replace(/[-_]/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
                         containerName: cleanName,
                         image: container.image,
                         internalPort: port,
                         sourceType: 'IMAGE',
+                        projectId: selectedProjectId,
+                        dockerHostId: projectHost?.id,
                       }))}`);
                     }}
                     onViewLogs={handleOpenLogs}
@@ -1019,6 +1022,8 @@ function MainApp() {
       <ImportComposeModal
         isOpen={importComposeModalOpen}
         onClose={() => setImportComposeModalOpen(false)}
+        projectId={selectedProjectId}
+        dockerHostId={hosts.find((h) => h.projectId === selectedProjectId)?.id}
         onImportSuccess={(newSvc) => {
           loadData();
           navigate(`/services/${newSvc.id}?tab=containers`);

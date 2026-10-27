@@ -239,6 +239,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
         setContainersList(data.containers || []);
         setComposeProject(data.composeProject || null);
         setAvailableContainers(data.allAvailableContainers || []);
+        setPublishedPorts(data.publishedPorts || {});
       }
     } catch (err: any) {
       console.warn('Falha ao carregar containers do serviço:', err);
@@ -478,6 +479,76 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
     }
   }, [selectedStackTemplate, service.containerName]);
 
+  // States: Modal Publicar Porta Host da Instância
+  const [portModalOpen, setPortModalOpen] = useState(false);
+  const [portModalComponent, setPortModalComponent] = useState('');
+  const [portModalContainerPort, setPortModalContainerPort] = useState('');
+  const [portModalHostPort, setPortModalHostPort] = useState('');
+  const [isSavingPortModal, setIsSavingPortModal] = useState(false);
+  const [publishedPorts, setPublishedPorts] = useState<Record<string, { hostPort: number; containerPort: number; protocol?: string }>>({});
+  const [quickDomainComponentName, setQuickDomainComponentName] = useState<string>('');
+  const [newInstanceHostPort, setNewInstanceHostPort] = useState('');
+  const [stackTemplateHostPort, setStackTemplateHostPort] = useState('');
+
+  const handleOpenPortModal = (compName: string, defaultContainerPort: number, currentHostPort?: number) => {
+    setPortModalComponent(compName);
+    setPortModalContainerPort(String(defaultContainerPort || 80));
+    setPortModalHostPort(currentHostPort ? String(currentHostPort) : '');
+    setPortModalOpen(true);
+  };
+
+  const handleSavePortModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!portModalComponent) return;
+    setIsSavingPortModal(true);
+    try {
+      const res = await authFetch(`/api/services/${service.id}/instances/${encodeURIComponent(portModalComponent)}/ports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          containerPort: Number(portModalContainerPort),
+          hostPort: portModalHostPort.trim() ? Number(portModalHostPort) : null,
+          protocol: 'tcp',
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showNotification(
+          'success',
+          'Porta Configurada',
+          portModalHostPort.trim()
+            ? `Porta host ${portModalHostPort} vinculada a :${portModalContainerPort} da instância "${portModalComponent}".`
+            : `Porta pública removida da instância "${portModalComponent}".`
+        );
+        setPortModalOpen(false);
+        await fetchContainers();
+        if (onRefreshData) onRefreshData();
+      } else {
+        showNotification('error', 'Falha ao configurar porta', data.error);
+      }
+    } catch (err: any) {
+      showNotification('error', 'Erro', err.message);
+    } finally {
+      setIsSavingPortModal(false);
+    }
+  };
+
+  const handleOpenQuickDomainModalForComponent = (
+    compName: string,
+    defaultPort: number,
+    replicas: DockerContainerInfo[]
+  ) => {
+    setQuickDomainComponentName(compName);
+    const target =
+      replicas.length > 1
+        ? JSON.stringify(replicas.map((r) => ({ container: r.name, port: defaultPort })))
+        : replicas[0]?.name || compName;
+    setQuickDomainTargetContainer(target);
+    setQuickDomainTargetPort(defaultPort);
+    setQuickDomainInput('');
+    setQuickDomainModalOpen(true);
+  };
+
   const handleDeployStackTemplate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedStackTemplate || !stackTemplateContainerName.trim()) {
@@ -521,6 +592,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
           name: stackTemplateContainerName.trim(),
           image: selectedStackTemplate.defaultImage,
           internalPort: selectedStackTemplate.defaultPort,
+          hostPort: stackTemplateHostPort ? Number(stackTemplateHostPort) : undefined,
           envVars: envLines.join('\n'),
           command: cmd,
         }),
@@ -574,6 +646,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
           name: newInstanceName.trim(),
           image: newInstanceImage.trim(),
           internalPort: newInstancePort ? Number(newInstancePort) : undefined,
+          hostPort: newInstanceHostPort ? Number(newInstanceHostPort) : undefined,
           envVars: newInstanceEnvs,
           volumes: newInstanceVolumes,
           command: newInstanceCommand,
@@ -2006,6 +2079,32 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                       const isDirtyScale = currentDesired !== group.totalCount;
                       const isScaling = scalingComponent === compKey;
 
+                      // Metadados no nível da Instância / Componente
+                      const replicaNames = group.containers.map((c) => c.name);
+                      const isPrimaryComponent =
+                        group.containers.some((c) => c.isPrimary) ||
+                        replicaNames.includes(containerName) ||
+                        group.serviceName === containerName;
+
+                      const detectedCompPort =
+                        (group.containers.find((c) => (c as any).detectedPort) as any)?.detectedPort ||
+                        group.containers.flatMap((c) => c.ports || []).find((p) => p.privatePort)?.privatePort ||
+                        (isPrimaryComponent ? internalPort : 80);
+
+                      const compDomains = serviceDomains.filter((d) => {
+                        if (!d.targetContainer) return isPrimaryComponent;
+                        if (d.targetContainer.startsWith('[')) {
+                          return replicaNames.some((rName) => d.targetContainer!.includes(`"${rName}"`));
+                        }
+                        return d.targetContainer === group.serviceName || replicaNames.includes(d.targetContainer);
+                      });
+
+                      const publishedPortSetting = publishedPorts[group.serviceName] || publishedPorts[compKey];
+                      const containerHostPort = group.containers
+                        .flatMap((c) => c.ports || [])
+                        .find((p) => p.publicPort)?.publicPort;
+                      const publishedHostPort = publishedPortSetting?.hostPort || containerHostPort;
+
                       return (
                         <div
                           key={compKey}
@@ -2038,6 +2137,15 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                 <span className="font-mono font-bold text-slate-900 text-sm">
                                   {group.serviceName}
                                 </span>
+                                {isPrimaryComponent && (
+                                  <span
+                                    className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300 shadow-2xs flex items-center gap-1"
+                                    title="Esta instância é o Roteador Principal da stack"
+                                  >
+                                    <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
+                                    <span>Principal (:{internalPort})</span>
+                                  </span>
+                                )}
                               </div>
 
                               {/* Replicas status pill */}
@@ -2054,7 +2162,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                   }`}
                                 />
                                 <span>
-                                  {group.runningCount}/{group.totalCount} Instância(s)
+                                  {group.runningCount}/{group.totalCount} Réplica(s)
                                 </span>
                               </span>
 
@@ -2141,7 +2249,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                   }
                                 }}
                                 className="px-2.5 py-1 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1 transition-colors shadow-2xs"
-                                title="Reiniciar todas as instâncias deste componente"
+                                title="Reiniciar todas as réplicas deste componente"
                               >
                                 <RotateCw className="w-3 h-3" />
                                 <span>Reiniciar Todas</span>
@@ -2157,7 +2265,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                     }
                                   }}
                                   className="px-2.5 py-1 text-xs font-semibold text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg flex items-center gap-1 transition-colors shadow-2xs"
-                                  title="Parar todas as instâncias deste componente"
+                                  title="Parar todas as réplicas deste componente"
                                 >
                                   <Square className="w-3 h-3 fill-current" />
                                   <span>Parar Todas</span>
@@ -2171,7 +2279,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                     }
                                   }}
                                   className="px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg flex items-center gap-1 transition-colors shadow-2xs"
-                                  title="Iniciar todas as instâncias deste componente"
+                                  title="Iniciar todas as réplicas deste componente"
                                 >
                                   <Play className="w-3 h-3 fill-current" />
                                   <span>Iniciar Todas</span>
@@ -2180,22 +2288,128 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                             </div>
                           </div>
 
-                          {/* Nested Replicas Table (Expanded) */}
+                          {/* Sub-barra: Configurações no nível da Instância (Domínios, Porta Pública Host, Variáveis .env) */}
+                          <div className="bg-white px-4 py-2.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2.5 text-xs">
+                            {/* Left: Domínios Vinculados à Instância */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                                <Globe className="w-3.5 h-3.5 text-slate-400" />
+                                <span>Domínios:</span>
+                              </span>
+
+                              {compDomains.length === 0 ? (
+                                <span className="text-[11px] text-slate-400 italic">Nenhum domínio vinculado</span>
+                              ) : (
+                                compDomains.map((d) => {
+                                  const isLb = d.targetContainer?.startsWith('[');
+                                  return (
+                                    <span
+                                      key={d.id}
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono font-bold border ${
+                                        isLb
+                                          ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                                          : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                      }`}
+                                      title={
+                                        isLb
+                                          ? `Traefik Load Balancer: tráfego distribuído automaticamente entre as réplicas`
+                                          : `Traefik: ${d.domainName} ➔ ${group.serviceName}:${d.targetPort || detectedCompPort}`
+                                      }
+                                    >
+                                      {isLb ? (
+                                        <Scale className="w-2.5 h-2.5 text-indigo-600" />
+                                      ) : (
+                                        <Globe className="w-2.5 h-2.5 text-emerald-600" />
+                                      )}
+                                      <span>{d.domainName}</span>
+                                    </span>
+                                  );
+                                })
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleOpenQuickDomainModalForComponent(
+                                    group.serviceName,
+                                    detectedCompPort,
+                                    group.containers
+                                  )
+                                }
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors shadow-2xs"
+                                title={`Vincular novo domínio à instância "${group.serviceName}" com balanceamento entre as réplicas`}
+                              >
+                                <Plus className="w-2.5 h-2.5" />
+                                <span>Associar Domínio</span>
+                              </button>
+                            </div>
+
+                            {/* Right: Porta Pública Host, Variáveis .env e Papel de Roteador */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {!isPrimaryComponent && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleSetPrimary(group.containers[0]?.name || group.serviceName, detectedCompPort)
+                                  }
+                                  className="px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:text-blue-700 bg-slate-100 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 rounded transition-colors"
+                                  title="Definir esta instância como Roteador Principal da stack"
+                                >
+                                  Tornar Principal
+                                </button>
+                              )}
+
+                              {/* Porta Pública Host */}
+                              {publishedHostPort ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenPortModal(group.serviceName, detectedCompPort, publishedHostPort)}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-[11px] font-mono font-bold bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 transition-colors shadow-2xs"
+                                  title="Clique para alterar ou remover a porta pública no host"
+                                >
+                                  <Network className="w-3 h-3 text-blue-600" />
+                                  <span>Host: {publishedHostPort} ➔ :{detectedCompPort}/tcp</span>
+                                  <Pencil className="w-2.5 h-2.5 text-blue-600 ml-0.5" />
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenPortModal(group.serviceName, detectedCompPort)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[11px] font-semibold text-slate-600 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-colors shadow-2xs"
+                                  title="Publicar uma porta pública no host para acesso externo direto (ex: banco de dados, redis)"
+                                >
+                                  <Network className="w-3 h-3 text-slate-500" />
+                                  <span>Publicar Porta Host</span>
+                                </button>
+                              )}
+
+                              {/* Variáveis de Ambiente da Instância */}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenInstanceEnvModal(group.serviceName)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-[11px] font-semibold text-purple-700 hover:text-purple-900 bg-purple-50 hover:bg-purple-100 border border-purple-200 transition-colors shadow-2xs"
+                                title={`Configurar variáveis de ambiente (.env) para toda a instância "${group.serviceName}"`}
+                              >
+                                <SlidersHorizontal className="w-3 h-3 text-purple-600" />
+                                <span>Variáveis (.env)</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Tabela de Réplicas (Execução/Containers da Instância) */}
                           {!isCollapsed && (
                             <table className="w-full text-left text-xs text-slate-600">
                               <thead className="bg-slate-50/50 border-b border-slate-100 text-slate-400 text-[10px] font-semibold uppercase tracking-wider">
                                 <tr>
                                   <th className="px-4 py-2">Réplica & Nome</th>
-                                  <th className="px-4 py-2">Roteamento HTTP Traefik</th>
                                   <th className="px-4 py-2">Status</th>
                                   <th className="px-4 py-2">Rede proxy-net</th>
-                                  <th className="px-4 py-2">Portas</th>
-                                  <th className="px-4 py-2 text-right">Ações Individuais</th>
+                                  <th className="px-4 py-2">Porta Interna</th>
+                                  <th className="px-4 py-2 text-right">Ações da Réplica</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100">
                                 {group.containers.map((c, idx) => {
-                                  const isPrimary = c.isPrimary !== undefined ? c.isPrimary : c.name === containerName;
                                   const isRunning = c.status === 'running' || c.state === 'running';
                                   const isOnProxyNet =
                                     c.isOnProxyNet || (c.networks && c.networks.includes('proxy-net'));
@@ -2205,9 +2419,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                   return (
                                     <tr
                                       key={c.id || c.name}
-                                      className={`hover:bg-slate-50/80 transition-colors ${
-                                        isPrimary ? 'bg-blue-50/20' : ''
-                                      }`}
+                                      className="hover:bg-slate-50/80 transition-colors"
                                     >
                                       {/* Replica Name & Indicator */}
                                       <td className="px-4 py-3">
@@ -2217,100 +2429,6 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                           <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                                             #{containerNum}
                                           </span>
-                                        </div>
-                                      </td>
-
-                                      {/* Routing Traefik */}
-                                      <td className="px-4 py-3">
-                                        <div className="space-y-1">
-                                          <div className="flex items-center gap-1.5 flex-wrap">
-                                            {isPrimary ? (
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  const currentP = internalPort;
-                                                  const suggested = (c as any).detectedPort || currentP;
-                                                  const entered = prompt(
-                                                    `Alterar porta interna do container principal "${c.name}" para o Traefik:`,
-                                                    String(suggested)
-                                                  );
-                                                  if (entered && !isNaN(Number(entered)) && Number(entered) > 0) {
-                                                    handleSetPrimary(c.name, Number(entered));
-                                                  }
-                                                }}
-                                                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 hover:bg-blue-200 text-blue-800 border border-blue-300 shadow-2xs transition-colors cursor-pointer"
-                                                title="Clique para alterar a porta interna deste container direcionada pelo Traefik"
-                                              >
-                                                <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
-                                                <span>Principal (:{internalPort})</span>
-                                                <Pencil className="w-2.5 h-2.5 text-blue-600 ml-0.5" />
-                                              </button>
-                                            ) : (
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  const samplePort =
-                                                    (c as any).detectedPort ||
-                                                    c.ports?.find((p) => p.privatePort)?.privatePort ||
-                                                    internalPort;
-                                                  handleSetPrimary(c.name, samplePort);
-                                                }}
-                                                className="px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:text-blue-700 bg-slate-100 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 rounded transition-colors"
-                                                title="Definir este container como principal da stack"
-                                              >
-                                                Tornar Principal
-                                              </button>
-                                            )}
-                                          </div>
-
-                                          {/* Associated Domains */}
-                                          <div className="flex items-center gap-1 flex-wrap pt-0.5">
-                                            {serviceDomains
-                                              .filter((d) => {
-                                                if (!d.targetContainer) return c.name === containerName;
-                                                if (d.targetContainer.startsWith('[')) {
-                                                  return d.targetContainer.includes(`"${c.name}"`);
-                                                }
-                                                return d.targetContainer === c.name;
-                                              })
-                                              .map((d) => {
-                                                const isLb = d.targetContainer?.startsWith('[');
-                                                return (
-                                                  <span
-                                                    key={d.id}
-                                                    className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-mono font-bold border ${
-                                                      isLb
-                                                        ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
-                                                        : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                                    }`}
-                                                    title={
-                                                      isLb
-                                                        ? `Traefik Load Balancer: ${d.domainName}`
-                                                        : `Traefik: ${d.domainName} ➔ ${c.name}:${
-                                                            d.targetPort || internalPort
-                                                          }`
-                                                    }
-                                                  >
-                                                    {isLb ? (
-                                                      <Scale className="w-2.5 h-2.5 text-indigo-600" />
-                                                    ) : (
-                                                      <Globe className="w-2.5 h-2.5 text-emerald-600" />
-                                                    )}
-                                                    <span>{d.domainName}</span>
-                                                  </span>
-                                                );
-                                              })}
-
-                                            <button
-                                              type="button"
-                                              onClick={() => handleOpenQuickDomainModal(c)}
-                                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors shadow-2xs"
-                                              title={`Vincular novo domínio diretamente a este container (${c.name})`}
-                                            >
-                                              <Plus className="w-2.5 h-2.5" />
-                                              <span>Associar Domínio</span>
-                                            </button>
-                                          </div>
                                         </div>
                                       </td>
 
@@ -2367,7 +2485,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                                 }`}
                                                 title={
                                                   p.publicPort
-                                                    ? `Mapeamento Host: ${p.publicPort} ➔ ${p.privatePort}`
+                                                    ? `Mapeamento Host: 0.0.0.0:${p.publicPort} ➔ ${p.privatePort}`
                                                     : `Porta Interna do Container: ${p.privatePort}/${p.type || 'tcp'}`
                                                 }
                                               >
@@ -2386,7 +2504,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                           >
                                             :{(c as any).detectedPort}/tcp (interna)
                                           </span>
-                                        ) : isPrimary ? (
+                                        ) : isPrimaryComponent ? (
                                           <span
                                             className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200"
                                             title="Porta interna configurada para o Traefik"
@@ -2401,15 +2519,6 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                       {/* Actions */}
                                       <td className="px-4 py-3 text-right">
                                         <div className="flex items-center justify-end gap-1">
-                                          <button
-                                            type="button"
-                                            onClick={() => handleOpenQuickDomainModal(c)}
-                                            className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                            title={`Vincular novo domínio diretamente a ${c.name}`}
-                                          >
-                                            <Globe className="w-3.5 h-3.5 text-blue-600" />
-                                          </button>
-
                                           {isRunning ? (
                                             <button
                                               type="button"
@@ -2437,7 +2546,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                             onClick={() => handleContainerPower(c.name, 'restart')}
                                             disabled={containerActionLoading[c.name]}
                                             className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition-colors"
-                                            title="Reiniciar este container"
+                                            title="Reiniciar esta réplica"
                                           >
                                             <RotateCw
                                               className={`w-3.5 h-3.5 ${
@@ -2462,15 +2571,6 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                             title={`Abrir Terminal / SSH em ${c.name} em janela`}
                                           >
                                             <TerminalSquare className="w-3.5 h-3.5" />
-                                          </button>
-
-                                          <button
-                                            type="button"
-                                            onClick={() => handleOpenInstanceEnvModal(c.name)}
-                                            className="p-1.5 text-slate-600 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
-                                            title={`Configurar variáveis de ambiente (.env) exclusivas de ${c.name}`}
-                                          >
-                                            <SlidersHorizontal className="w-3.5 h-3.5 text-purple-600" />
                                           </button>
                                         </div>
                                       </td>
@@ -2674,15 +2774,6 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                               {/* Actions */}
                               <td className="px-4 py-3.5 text-right">
                                 <div className="flex items-center justify-end gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenQuickDomainModal(c)}
-                                    className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                    title={`Vincular novo domínio diretamente a ${c.name}`}
-                                  >
-                                    <Globe className="w-3.5 h-3.5 text-blue-600" />
-                                  </button>
-
                                   {isRunning ? (
                                     <button
                                       type="button"
@@ -2731,15 +2822,6 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                                     title={`Abrir Terminal / SSH em ${c.name} em janela`}
                                   >
                                     <TerminalSquare className="w-3.5 h-3.5" />
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenInstanceEnvModal(c.name)}
-                                    className="p-1.5 text-slate-600 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
-                                    title={`Configurar variáveis de ambiente (.env) exclusivas de ${c.name}`}
-                                  >
-                                    <SlidersHorizontal className="w-3.5 h-3.5 text-purple-600" />
                                   </button>
 
                                   {c.isManuallyLinked && (
@@ -4944,7 +5026,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
             <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Globe className="w-4 h-4 text-blue-600" />
-                <h3 className="text-sm font-bold text-slate-900">Associar Domínio ao Container</h3>
+                <h3 className="text-sm font-bold text-slate-900">Associar Domínio à Instância</h3>
               </div>
               <button
                 onClick={() => setQuickDomainModalOpen(false)}
@@ -4957,12 +5039,18 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
             <form onSubmit={handleSaveQuickDomain} className="p-5 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Container de Destino
+                  Instância / Componente de Destino
                 </label>
                 <div className="px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg font-mono text-xs font-bold text-slate-800 flex items-center justify-between">
-                  <span>{quickDomainTargetContainer}</span>
+                  <span>{quickDomainComponentName || (quickDomainTargetContainer.startsWith('[') ? 'Múltiplas Réplicas (Load Balancer)' : quickDomainTargetContainer)}</span>
                   <span className="text-blue-600 font-semibold text-[11px] font-sans">Stack: {service.name}</span>
                 </div>
+                {quickDomainTargetContainer.startsWith('[') && (
+                  <p className="text-[10px] text-indigo-600 font-semibold mt-1 flex items-center gap-1">
+                    <Scale className="w-3 h-3" />
+                    <span>Balanceamento de carga ativo entre todas as réplicas desta instância.</span>
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-3 gap-3">
@@ -5463,20 +5551,20 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Imagem Docker <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newInstanceImage}
+                  onChange={(e) => setNewInstanceImage(e.target.value)}
+                  placeholder="ex: redis:7-alpine, dpage/pgadmin4"
+                  className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg font-mono focus:bg-white focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Imagem Docker <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newInstanceImage}
-                    onChange={(e) => setNewInstanceImage(e.target.value)}
-                    placeholder="ex: redis:7-alpine, dpage/pgadmin4"
-                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg font-mono focus:bg-white focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                  />
-                </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Porta Interna (TCP/HTTP)
@@ -5488,6 +5576,20 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                     placeholder="ex: 6379, 80"
                     className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg font-mono focus:bg-white focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                   />
+                  <p className="text-[10px] text-slate-400 mt-0.5">Porta interna do container.</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Porta Pública Host (Opcional)
+                  </label>
+                  <input
+                    type="number"
+                    value={newInstanceHostPort}
+                    onChange={(e) => setNewInstanceHostPort(e.target.value)}
+                    placeholder="ex: 6379, 5432"
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg font-mono focus:bg-white focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-0.5">Mapear 0.0.0.0 na máquina host.</p>
                 </div>
               </div>
 
@@ -5718,6 +5820,22 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                     </div>
                   )}
 
+                  <div className="pt-2">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Porta Pública no Host (Opcional)
+                    </label>
+                    <input
+                      type="number"
+                      value={stackTemplateHostPort}
+                      onChange={(e) => setStackTemplateHostPort(e.target.value)}
+                      placeholder={`ex: ${selectedStackTemplate.defaultPort} (para expor na VPS/Host fora do Traefik)`}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg font-mono focus:bg-white focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      Deixe vazio se desejar que este componente fique acessível somente internamente dentro da rede Docker/Traefik.
+                    </p>
+                  </div>
+
                   <div className="p-3 bg-emerald-50/60 border border-emerald-100 rounded-xl text-xs text-emerald-900 flex items-start gap-2">
                     <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                     <p className="leading-relaxed">
@@ -5894,8 +6012,8 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                     className="w-full p-3 text-xs bg-slate-900 text-emerald-400 font-mono rounded-xl border border-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 leading-relaxed resize-none selection:bg-purple-600 selection:text-white"
                   />
                   <p className="text-[11px] text-slate-500">
-                    Ao salvar, o container <strong className="text-slate-800 font-mono">{instanceEnvModalContainer}</strong> será
-                    recriado de forma transparente para aplicar estas variáveis de ambiente, sem afetar nenhuma outra instância.
+                    Ao salvar, a instância <strong className="text-slate-800 font-mono">{instanceEnvModalContainer}</strong> e
+                    todas as suas réplicas serão recriadas para aplicar estas variáveis de ambiente.
                   </p>
                 </div>
               )}
@@ -5929,6 +6047,101 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Publicar Porta Pública Host para a Instância */}
+      {portModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Network className="w-4 h-4 text-blue-600" />
+                <h3 className="text-sm font-bold text-slate-900">Porta Pública no Host</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPortModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-700 rounded-md"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSavePortModal} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Instância Selecionada
+                </label>
+                <div className="px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg font-mono text-xs font-bold text-slate-800 flex items-center justify-between">
+                  <span>{portModalComponent}</span>
+                  <span className="text-blue-600 font-semibold text-[11px] font-sans">Stack: {service.name}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Porta Interna <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    value={portModalContainerPort}
+                    onChange={(e) => setPortModalContainerPort(e.target.value)}
+                    placeholder="ex: 6379, 5432, 80"
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg font-mono focus:bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-0.5">Porta no container.</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Porta Host (0.0.0.0)
+                  </label>
+                  <input
+                    type="number"
+                    value={portModalHostPort}
+                    onChange={(e) => setPortModalHostPort(e.target.value)}
+                    placeholder="ex: 6379 (ou vazio para remover)"
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg font-mono focus:bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-0.5">Porta externa aberta.</p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-blue-50/60 border border-blue-200/60 rounded-lg text-[11px] text-blue-800 leading-relaxed">
+                💡 <strong>Dica:</strong> Se você preencher a porta host (ex: <code>6379</code>), o container será recriado mapeando <code>0.0.0.0:6379 ➔ :{portModalContainerPort}/tcp</code>, permitindo conexão direta com banco de dados ou Redis. Se deixar vazio, a porta host será desvinculada, mantendo o tráfego restrito ao Traefik e rede interna.
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPortModalOpen(false)}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingPortModal}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-colors disabled:opacity-50"
+                >
+                  {isSavingPortModal ? (
+                    <>
+                      <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Aplicando Porta...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Salvar e Aplicar Porta</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

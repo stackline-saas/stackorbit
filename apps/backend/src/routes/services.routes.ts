@@ -22,6 +22,7 @@ export interface ServiceMetadata {
   primaryContainer?: string;
   primaryPort?: number;
   instanceEnvs?: Record<string, string>;
+  publishedPorts?: Record<string, { hostPort: number; containerPort: number; protocol?: string }>;
 }
 
 export function parseServiceMetadata(notes?: string | null): { userNotes: string; meta: ServiceMetadata } {
@@ -472,6 +473,7 @@ router.get('/:id/containers', requireAuth, async (req, res) => {
       primaryContainerName: service.containerName,
       internalPort: service.internalPort,
       composeProject,
+      publishedPorts: meta.publishedPorts || {},
       containers: enriched,
       allAvailableContainers: allContainers.map((c) => ({
         id: c.id,
@@ -1531,55 +1533,88 @@ router.put('/:id/instances/:containerName/env', requireAuth, async (req: Authent
     const effectiveMap = { ...baseMap, ...instanceMap };
     const effectiveEnvArray = Object.entries(effectiveMap).map(([k, v]) => `${k}=${v}`);
 
-    let recreated = false;
+    let recreatedCount = 0;
     let recreateError: string | null = null;
     try {
       const docker = await dockerHostManager.getClientForHost(service.dockerHostId);
-      const oldContainer = docker.getContainer(containerName);
-      const inspect = await oldContainer.inspect();
+      const allContainers = await docker.listContainers({ all: true });
 
-      await oldContainer.stop({ t: 5 }).catch(() => {});
-      await oldContainer.remove({ force: true }).catch(() => {});
-
-      const endpointsConfig: any = {};
-      if (inspect.NetworkSettings?.Networks) {
-        for (const netName of Object.keys(inspect.NetworkSettings.Networks)) {
-          endpointsConfig[netName] = {};
-        }
-      }
-      if (!endpointsConfig['proxy-net']) {
-        endpointsConfig['proxy-net'] = {};
-      }
-
-      const hostConfig: any = {
-        Binds: inspect.HostConfig.Binds,
-        RestartPolicy: inspect.HostConfig.RestartPolicy,
-        Memory: inspect.HostConfig.Memory,
-        CpuShares: inspect.HostConfig.CpuShares,
-        NetworkMode: inspect.HostConfig.NetworkMode,
-        PortBindings: inspect.HostConfig.PortBindings,
-      };
-
-      const newContainer = await docker.createContainer({
-        name: containerName,
-        Image: inspect.Config.Image,
-        Env: effectiveEnvArray,
-        Cmd: inspect.Config.Cmd,
-        Entrypoint: inspect.Config.Entrypoint,
-        WorkingDir: inspect.Config.WorkingDir,
-        User: inspect.Config.User,
-        Labels: inspect.Config.Labels,
-        HostConfig: hostConfig,
-        NetworkingConfig: {
-          EndpointsConfig: endpointsConfig,
-        },
+      // Encontrar todos os containers que pertencem a esta instância/componente
+      let targetContainers = allContainers.filter((c: any) => {
+        const name = c.Names?.[0]?.replace(/^\//, '');
+        const comp = c.Labels?.['com.docker.compose.service'];
+        return (
+          name === containerName ||
+          comp === containerName ||
+          name?.startsWith(`${containerName}-`) ||
+          name?.startsWith(`${service.containerName}_${containerName}`) ||
+          name?.startsWith(`${service.containerName}-${containerName}`)
+        );
       });
 
-      await newContainer.start();
-      await dockerService.attachToNetwork(containerName, service.dockerHostId || undefined);
-      recreated = true;
+      if (targetContainers.length === 0) {
+        try {
+          const single = await docker.getContainer(containerName).inspect();
+          if (single) {
+            targetContainers = [{ Id: single.Id, Names: ['/' + containerName] } as any];
+          }
+        } catch {}
+      }
+
+      for (const tc of targetContainers) {
+        const cName = tc.Names?.[0]?.replace(/^\//, '') || containerName;
+        try {
+          const oldContainer = docker.getContainer(tc.Id);
+          const inspect = await oldContainer.inspect();
+
+          await oldContainer.stop({ t: 5 }).catch(() => {});
+          await oldContainer.remove({ force: true }).catch(() => {});
+
+          const endpointsConfig: any = {};
+          if (inspect.NetworkSettings?.Networks) {
+            for (const netName of Object.keys(inspect.NetworkSettings.Networks)) {
+              endpointsConfig[netName] = {};
+            }
+          }
+          if (!endpointsConfig['proxy-net']) {
+            endpointsConfig['proxy-net'] = {};
+          }
+
+          const hostConfig: any = {
+            Binds: inspect.HostConfig.Binds,
+            RestartPolicy: inspect.HostConfig.RestartPolicy,
+            Memory: inspect.HostConfig.Memory,
+            CpuShares: inspect.HostConfig.CpuShares,
+            NetworkMode: inspect.HostConfig.NetworkMode,
+            PortBindings: inspect.HostConfig.PortBindings,
+          };
+
+          const newContainer = await docker.createContainer({
+            name: cName,
+            Image: inspect.Config.Image,
+            Env: effectiveEnvArray,
+            Cmd: inspect.Config.Cmd,
+            Entrypoint: inspect.Config.Entrypoint,
+            WorkingDir: inspect.Config.WorkingDir,
+            User: inspect.Config.User,
+            Labels: inspect.Config.Labels,
+            ExposedPorts: inspect.Config.ExposedPorts,
+            HostConfig: hostConfig,
+            NetworkingConfig: {
+              EndpointsConfig: endpointsConfig,
+            },
+          });
+
+          await newContainer.start();
+          await dockerService.attachToNetwork(cName, service.dockerHostId || undefined);
+          recreatedCount++;
+        } catch (subErr: any) {
+          console.warn(`[InstanceEnv] Falha ao recriar container ${cName}:`, subErr.message);
+          recreateError = subErr.message;
+        }
+      }
     } catch (e: any) {
-      console.warn(`[InstanceEnv] Falha ao recriar container ${containerName}:`, e.message);
+      console.warn(`[InstanceEnv] Falha geral ao recriar containers:`, e.message);
       recreateError = e.message;
     }
 
@@ -1589,13 +1624,14 @@ router.put('/:id/instances/:containerName/env', requireAuth, async (req: Authent
       action: 'INSTANCE_ENV_UPDATE',
       entityType: 'SERVICE',
       entityId: service.id,
-      details: `Variáveis da instância "${containerName}" atualizadas na stack "${service.name}". ${recreated ? 'Container recriado com sucesso.' : `Aviso: ${recreateError}`}`,
+      details: `Variáveis da instância "${containerName}" atualizadas na stack "${service.name}". ${recreatedCount > 0 ? `${recreatedCount} container(s) recriado(s) com sucesso.` : `Aviso: ${recreateError}`}`,
       ipAddress: req.ip,
     });
 
     return res.json({
       success: true,
-      recreated,
+      recreated: recreatedCount > 0,
+      recreatedCount,
       recreateError,
       containerName,
       effectiveMap,
@@ -1605,13 +1641,167 @@ router.put('/:id/instances/:containerName/env', requireAuth, async (req: Authent
   }
 });
 
+// 15. Publicar / Alterar Porta Host da Instância
+router.post('/:id/instances/:componentName/ports', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const service = await prisma.service.findUnique({ where: { id: req.params.id } });
+    if (!service) return res.status(404).json({ error: 'Serviço não encontrado.' });
+
+    const componentName = req.params.componentName;
+    const { containerPort, hostPort, protocol } = req.body;
+
+    const cPort = Number(containerPort);
+    if (!cPort || isNaN(cPort)) {
+      return res.status(400).json({ error: 'Porta interna do container é obrigatória.' });
+    }
+
+    const proto = (protocol || 'tcp').toLowerCase();
+    const portKey = `${cPort}/${proto}`;
+    const parsedHostPort = hostPort !== undefined && hostPort !== null && String(hostPort).trim() !== ''
+      ? Number(hostPort)
+      : null;
+
+    if (parsedHostPort !== null && (isNaN(parsedHostPort) || parsedHostPort < 1 || parsedHostPort > 65535)) {
+      return res.status(400).json({ error: 'Porta pública no host inválida (deve estar entre 1 e 65535).' });
+    }
+
+    const docker = await dockerHostManager.getClientForHost(service.dockerHostId);
+    const allContainers = await docker.listContainers({ all: true });
+
+    // Encontrar containers que pertencem a este componente
+    let targetContainers = allContainers.filter((c: any) => {
+      const name = c.Names?.[0]?.replace(/^\//, '');
+      const comp = c.Labels?.['com.docker.compose.service'];
+      return (
+        name === componentName ||
+        comp === componentName ||
+        name?.startsWith(`${componentName}-`) ||
+        name?.startsWith(`${service.containerName}_${componentName}`) ||
+        name?.startsWith(`${service.containerName}-${componentName}`)
+      );
+    });
+
+    if (targetContainers.length === 0) {
+      try {
+        const single = await docker.getContainer(componentName).inspect();
+        if (single) {
+          targetContainers = [{ Id: single.Id, Names: ['/' + componentName] } as any];
+        }
+      } catch {}
+    }
+
+    if (targetContainers.length === 0) {
+      return res.status(404).json({ error: `Nenhum container encontrado para a instância "${componentName}".` });
+    }
+
+    const recreatedList: string[] = [];
+    for (const tc of targetContainers) {
+      const cName = tc.Names?.[0]?.replace(/^\//, '') || componentName;
+      try {
+        const cObj = docker.getContainer(tc.Id);
+        const inspect = await cObj.inspect();
+
+        await cObj.stop({ t: 5 }).catch(() => {});
+        await cObj.remove({ force: true }).catch(() => {});
+
+        const currentBindings: any = { ...(inspect.HostConfig?.PortBindings || {}) };
+        const exposedPorts: any = { ...(inspect.Config?.ExposedPorts || {}) };
+        exposedPorts[portKey] = {};
+
+        if (parsedHostPort) {
+          currentBindings[portKey] = [{ HostPort: String(parsedHostPort) }];
+        } else {
+          delete currentBindings[portKey];
+        }
+
+        const endpointsConfig: any = {};
+        if (inspect.NetworkSettings?.Networks) {
+          for (const netName of Object.keys(inspect.NetworkSettings.Networks)) {
+            endpointsConfig[netName] = {};
+          }
+        }
+        if (!endpointsConfig['proxy-net']) {
+          endpointsConfig['proxy-net'] = {};
+        }
+
+        const newContainer = await docker.createContainer({
+          name: cName,
+          Image: inspect.Config.Image,
+          Env: inspect.Config.Env,
+          Cmd: inspect.Config.Cmd,
+          Entrypoint: inspect.Config.Entrypoint,
+          WorkingDir: inspect.Config.WorkingDir,
+          User: inspect.Config.User,
+          Labels: inspect.Config.Labels,
+          ExposedPorts: exposedPorts,
+          HostConfig: {
+            ...inspect.HostConfig,
+            PortBindings: Object.keys(currentBindings).length > 0 ? currentBindings : undefined,
+          },
+          NetworkingConfig: {
+            EndpointsConfig: endpointsConfig,
+          },
+        });
+
+        await newContainer.start();
+        await dockerService.attachToNetwork(cName, service.dockerHostId || undefined);
+        recreatedList.push(cName);
+      } catch (recreateErr: any) {
+        console.error(`Erro ao atualizar portas do container ${cName}:`, recreateErr);
+        if (recreateErr.message?.includes('port is already allocated')) {
+          return res.status(400).json({
+            error: `A porta host ${parsedHostPort} já está em uso por outro serviço na máquina host.`
+          });
+        }
+        return res.status(500).json({ error: `Falha ao recriar container com nova porta: ${recreateErr.message}` });
+      }
+    }
+
+    // Salvar nos metadados do serviço
+    const { userNotes, meta } = parseServiceMetadata(service.notes);
+    meta.publishedPorts = meta.publishedPorts || {};
+    if (parsedHostPort) {
+      meta.publishedPorts[componentName] = { hostPort: parsedHostPort, containerPort: cPort, protocol: proto };
+    } else {
+      delete meta.publishedPorts[componentName];
+    }
+    const updatedNotes = serializeServiceMetadata(userNotes, meta);
+    await prisma.service.update({
+      where: { id: service.id },
+      data: { notes: updatedNotes },
+    });
+
+    await logAudit({
+      userId: req.user?.id,
+      userName: req.user?.name || 'Administrador',
+      action: 'INSTANCE_PORT_UPDATE',
+      entityType: 'SERVICE',
+      entityId: service.id,
+      details: parsedHostPort
+        ? `Porta pública ${parsedHostPort} ➔ :${cPort}/${proto} mapeada para instância "${componentName}".`
+        : `Porta pública removida da instância "${componentName}".`,
+      ipAddress: req.ip,
+    });
+
+    return res.json({
+      success: true,
+      componentName,
+      containerPort: cPort,
+      hostPort: parsedHostPort,
+      recreated: recreatedList,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: `Erro ao configurar portas da instância: ${err.message}` });
+  }
+});
+
 // 15. Adicionar Nova Instância / Componente ao Agrupamento do Serviço
 router.post('/:id/instances', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
     const service = await prisma.service.findUnique({ where: { id: req.params.id } });
     if (!service) return res.status(404).json({ error: 'Serviço não encontrado.' });
 
-    const { name, image, internalPort, envVars, command, volumes } = req.body;
+    const { name, image, internalPort, hostPort, publicPort, envVars, command, volumes } = req.body;
 
     if (!name || typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ error: 'O nome do container é obrigatório.' });
@@ -1623,6 +1813,7 @@ router.post('/:id/instances', requireAuth, async (req: AuthenticatedRequest, res
     const cleanName = name.trim();
     const cleanImage = image.trim();
     const parsedPort = internalPort ? Number(internalPort) : undefined;
+    const parsedHostPort = hostPort || publicPort ? Number(hostPort || publicPort) : undefined;
 
     const docker = await dockerHostManager.getClientForHost(service.dockerHostId);
 
@@ -1668,8 +1859,12 @@ router.post('/:id/instances', requireAuth, async (req: AuthenticatedRequest, res
     }
 
     const exposedPorts: any = {};
+    const portBindings: any = {};
     if (parsedPort) {
       exposedPorts[`${parsedPort}/tcp`] = {};
+      if (parsedHostPort) {
+        portBindings[`${parsedPort}/tcp`] = [{ HostPort: String(parsedHostPort) }];
+      }
     }
 
     const container = await docker.createContainer({
@@ -1682,6 +1877,7 @@ router.post('/:id/instances', requireAuth, async (req: AuthenticatedRequest, res
       HostConfig: {
         RestartPolicy: { Name: 'unless-stopped' },
         Binds: binds.length > 0 ? binds : undefined,
+        PortBindings: Object.keys(portBindings).length > 0 ? portBindings : undefined,
       },
       NetworkingConfig: {
         EndpointsConfig: {
@@ -1693,7 +1889,7 @@ router.post('/:id/instances', requireAuth, async (req: AuthenticatedRequest, res
     await container.start();
     await dockerService.attachToNetwork(cleanName, service.dockerHostId || undefined);
 
-    // Update metadata: linkedContainers e instanceEnvs
+    // Update metadata: linkedContainers, instanceEnvs, publishedPorts
     const { userNotes, meta } = parseServiceMetadata(service.notes);
     meta.linkedContainers = meta.linkedContainers || [];
     if (!meta.linkedContainers.includes(cleanName)) {
@@ -1702,6 +1898,10 @@ router.post('/:id/instances', requireAuth, async (req: AuthenticatedRequest, res
     if (envVars && envVars.trim()) {
       meta.instanceEnvs = meta.instanceEnvs || {};
       meta.instanceEnvs[cleanName] = envVars.trim();
+    }
+    if (parsedHostPort && parsedPort) {
+      meta.publishedPorts = meta.publishedPorts || {};
+      meta.publishedPorts[cleanName] = { hostPort: parsedHostPort, containerPort: parsedPort, protocol: 'tcp' };
     }
 
     const updatedNotes = serializeServiceMetadata(userNotes, meta);
@@ -1716,7 +1916,7 @@ router.post('/:id/instances', requireAuth, async (req: AuthenticatedRequest, res
       action: 'INSTANCE_CREATED',
       entityType: 'SERVICE',
       entityId: service.id,
-      details: `Nova instância "${cleanName}" (${cleanImage}) adicionada à stack "${service.name}".`,
+      details: `Nova instância "${cleanName}" (${cleanImage}) adicionada à stack "${service.name}".${parsedHostPort ? ` Porta host ${parsedHostPort} ➔ :${parsedPort}` : ''}`,
       ipAddress: req.ip,
     });
 
@@ -1725,6 +1925,7 @@ router.post('/:id/instances', requireAuth, async (req: AuthenticatedRequest, res
       containerName: cleanName,
       image: cleanImage,
       internalPort: parsedPort,
+      hostPort: parsedHostPort,
     });
   } catch (err: any) {
     return res.status(500).json({ error: `Erro ao adicionar nova instância: ${err.message}` });

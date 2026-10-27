@@ -32,6 +32,9 @@ import { ProjectHostsView } from './components/views/ProjectHostsView.tsx';
 import { ProjectSelector } from './components/navigation/ProjectSelector.tsx';
 import { ServiceDetailView } from './components/views/ServiceDetailView.tsx';
 import { CreateServiceView } from './components/views/CreateServiceView.tsx';
+import { SitesView } from './components/views/SitesView.tsx';
+import { DatabasesView } from './components/views/DatabasesView.tsx';
+import { DatabaseStudioView } from './components/views/DatabaseStudioView.tsx';
 import {
   ServiceModal,
   DomainModal,
@@ -185,6 +188,8 @@ function MainApp() {
     if (p.startsWith('/hosts')) return 'hosts';
     if (p.startsWith('/services/')) return 'service-detail';
     if (p.startsWith('/services')) return 'services';
+    if (p.startsWith('/sites')) return 'sites';
+    if (p.startsWith('/databases')) return 'databases';
     if (p.startsWith('/domains')) return 'domains';
     if (p.startsWith('/default-service')) return 'default-service';
     if (p.startsWith('/containers')) return 'containers';
@@ -212,6 +217,12 @@ function MainApp() {
         break;
       case 'services':
         navigate('/services');
+        break;
+      case 'sites':
+        navigate('/sites');
+        break;
+      case 'databases':
+        navigate('/databases');
         break;
       case 'service-detail':
         navigate('/services');
@@ -668,6 +679,26 @@ function MainApp() {
     ? domains.filter((d) => displayedServiceIds.has(d.serviceId))
     : domains;
 
+  const displayedSites = displayedServices.filter((s) => {
+    const meta = (s as any).meta || {};
+    const notes = (s.notes || '').toLowerCase();
+    return meta.isSite || notes.includes('site estático') || notes.includes('site php') || notes.includes('wordpress') || notes.includes('prestashop');
+  });
+
+  const displayedDatabases = displayedServices.filter((s) => {
+    const img = (s.image || '').toLowerCase();
+    const notes = (s.notes || '').toLowerCase();
+    return (
+      img.includes('postgres') ||
+      img.includes('mariadb') ||
+      img.includes('mysql') ||
+      img.includes('redis') ||
+      notes.includes('postgresql') ||
+      notes.includes('mariadb') ||
+      notes.includes('redis')
+    );
+  });
+
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
       {/* Sidebar Navigation */}
@@ -676,6 +707,8 @@ function MainApp() {
         onSelectTab={handleNavigateTab}
         servicesCount={displayedServices.length}
         domainsCount={displayedDomains.length}
+        sitesCount={displayedSites.length}
+        databasesCount={displayedDatabases.length}
         dockerConnected={stats?.dockerConnected ?? true}
         projects={projects}
         hosts={hosts}
@@ -695,8 +728,8 @@ function MainApp() {
         />
 
         {/* View Content Area with Declarative Routing */}
-        <main className={`flex-1 overflow-y-auto ${location.pathname.startsWith('/services/') || location.pathname.startsWith('/settings') ? 'p-4 md:p-6' : 'p-6'}`}>
-          <div className={location.pathname.startsWith('/services/') || location.pathname.startsWith('/settings') ? 'w-full' : 'max-w-7xl mx-auto'}>
+        <main className={`flex-1 overflow-y-auto ${location.pathname.startsWith('/services/') || location.pathname.startsWith('/settings') || location.pathname.startsWith('/databases/') ? 'p-4 md:p-6' : 'p-6'}`}>
+          <div className={location.pathname.startsWith('/services/') || location.pathname.startsWith('/settings') || location.pathname.startsWith('/databases/') ? 'w-full' : 'max-w-7xl mx-auto'}>
             <ErrorBoundary>
               <Routes>
                 {/* Home & Login Redirects */}
@@ -834,6 +867,34 @@ function MainApp() {
                     isRefreshing={isRefreshing}
                   />
                 }
+              />
+
+              {/* 3b. Sites Web & CMS */}
+              <Route
+                path="/sites"
+                element={
+                  <SitesView
+                    selectedProjectId={selectedProjectId}
+                    projects={projects}
+                    mainDomain={stats?.mainDomain || 'bla.com.br'}
+                  />
+                }
+              />
+
+              {/* 3c. Bancos de Dados Hub & Studio */}
+              <Route
+                path="/databases"
+                element={
+                  <DatabasesView
+                    selectedProjectId={selectedProjectId}
+                    projects={projects}
+                    mainDomain={stats?.mainDomain || 'bla.com.br'}
+                  />
+                }
+              />
+              <Route
+                path="/databases/:id"
+                element={<DatabaseStudioView />}
               />
 
               {/* 4. Domains & Routing */}

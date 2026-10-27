@@ -317,6 +317,8 @@ export class DockerService {
     cpuLimit?: number;
     command?: string;
     hostId?: string | null;
+    volumes?: string | string[];
+    binds?: string[];
   }): Promise<string> {
     const docker = await this.getClient(options.hostId);
     await this.ensureNetwork(config.networkName, options.hostId);
@@ -363,6 +365,19 @@ export class DockerService {
         Name: restartPolicyName as any,
       },
     };
+
+    if (options.binds && options.binds.length > 0) {
+      hostConfig.Binds = options.binds;
+    } else if (options.volumes) {
+      if (Array.isArray(options.volumes)) {
+        hostConfig.Binds = options.volumes;
+      } else if (typeof options.volumes === 'string') {
+        hostConfig.Binds = options.volumes
+          .split('\n')
+          .map((v) => v.trim())
+          .filter((v) => v.length > 0 && !v.startsWith('#'));
+      }
+    }
 
     if (options.memoryLimitMb && options.memoryLimitMb > 0) {
       hostConfig.Memory = options.memoryLimitMb * 1024 * 1024;

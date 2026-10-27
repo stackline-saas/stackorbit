@@ -16,6 +16,8 @@ const tabTitles: Record<ActiveTab, { title: string; category: string }> = {
   hosts: { title: 'Servidores & Nós Docker', category: 'Infraestrutura' },
   services: { title: 'Serviços e Containers', category: 'Infraestrutura' },
   'service-detail': { title: 'Configuração do Serviço', category: 'Serviços' },
+  sites: { title: 'Sites Web & CMS', category: 'Aplicações Web' },
+  databases: { title: 'Bancos de Dados & Studio', category: 'Armazenamento' },
   domains: { title: 'Roteamento de Domínios', category: 'Roteamento' },
   'default-service': { title: 'Serviço Padrão (Catch-All)', category: 'Roteamento' },
   containers: { title: 'Docker Engine Containers', category: 'Infraestrutura' },

@@ -19,6 +19,8 @@ import {
   ChevronsUpDown,
   Check,
   Plus,
+  Database,
+  Layout,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.tsx';
 import type { ActiveTab, Project, DockerHost } from '../types/index.ts';
@@ -30,6 +32,8 @@ interface SidebarProps {
   onSelectTab?: (tab: ActiveTab) => void;
   servicesCount: number;
   domainsCount: number;
+  sitesCount?: number;
+  databasesCount?: number;
   dockerConnected: boolean;
   projects?: Project[];
   hosts?: DockerHost[];
@@ -42,6 +46,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectTab,
   servicesCount,
   domainsCount,
+  sitesCount = 0,
+  databasesCount = 0,
   dockerConnected,
   projects = [],
   hosts = [],
@@ -87,6 +93,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Serviços',
       icon: Server,
       count: servicesCount,
+    },
+    {
+      id: 'sites' as ActiveTab,
+      path: '/sites',
+      label: 'Sites Web',
+      icon: Layout,
+      count: sitesCount,
+    },
+    {
+      id: 'databases' as ActiveTab,
+      path: '/databases',
+      label: 'Bancos de Dados',
+      icon: Database,
+      count: databasesCount,
     },
     {
       id: 'domains' as ActiveTab,

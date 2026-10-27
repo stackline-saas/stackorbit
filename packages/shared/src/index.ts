@@ -131,7 +131,7 @@ export interface TemplateField {
 export interface ServiceTemplate {
   id: string;
   name: string;
-  category: 'database' | 'cache_queue' | 'tools_web';
+  category: 'database' | 'cache_queue' | 'tools_web' | 'sites_cms';
   categoryLabel: string;
   description: string;
   iconName: string;
@@ -140,10 +140,92 @@ export interface ServiceTemplate {
   defaultContainerName: string;
   isWebUI: boolean;
   suggestedDomainPrefix?: string;
+  isSite?: boolean;
+  siteType?: 'STATIC' | 'PHP' | 'WORDPRESS' | 'ECOMMERCE';
+  documentRoot?: string;
+  hasDatabaseCompanion?: boolean;
   fields: TemplateField[];
   generateEnv: (values: Record<string, string>) => string;
   generateCommand?: (values: Record<string, string>) => string;
   generateConnectionString?: (values: Record<string, string>, containerName: string) => string;
+}
+
+// ==========================================
+// SITES & FILE MANAGER INTERFACES
+// ==========================================
+export interface SiteFile {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size: number;
+  mtime: string;
+  extension: string;
+}
+
+export interface SiteSFTPCredentials {
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
+  remotePath: string;
+  connectionString: string;
+}
+
+// ==========================================
+// DATABASE STUDIO & REDIS INTERFACES
+// ==========================================
+export interface DatabaseColumn {
+  name: string;
+  type: string;
+  nullable: boolean;
+  defaultValue?: string | null;
+  isPrimaryKey: boolean;
+  isForeignKey: boolean;
+  comment?: string | null;
+}
+
+export interface DatabaseForeignKey {
+  column: string;
+  referencedTable: string;
+  referencedColumn: string;
+  constraintName?: string;
+}
+
+export interface DatabaseTable {
+  name: string;
+  schema: string;
+  rowsEstimate: number;
+  sizeBytes?: number;
+  columns: DatabaseColumn[];
+  primaryKeys: string[];
+  foreignKeys: DatabaseForeignKey[];
+}
+
+export interface DatabaseCatalog {
+  databaseType: 'postgres' | 'mysql' | 'mariadb';
+  databaseName: string;
+  version?: string;
+  tables: DatabaseTable[];
+  views: string[];
+  functions: string[];
+}
+
+export interface RedisKeyInfo {
+  key: string;
+  type: 'string' | 'hash' | 'list' | 'set' | 'zset' | 'none';
+  ttl: number; // -1: persistente, -2: nao existe, >0: segundos restantes
+  length?: number;
+  value?: any;
+}
+
+export interface RedisServerMetrics {
+  usedMemoryHuman: string;
+  usedMemoryPeakHuman: string;
+  connectedClients: number;
+  totalKeys: number;
+  uptimeInSeconds: number;
+  redisVersion: string;
+  opsPerSec: number;
 }
 
 // ==========================================
@@ -286,5 +368,99 @@ export const SERVICE_TEMPLATES: ServiceTemplate[] = [
     suggestedDomainPrefix: 'whoami',
     fields: [],
     generateEnv: () => '# Traefik Whoami Test Service',
+  },
+  {
+    id: 'static-site',
+    name: 'Site Estático (HTML5 / Nginx)',
+    category: 'sites_cms',
+    categoryLabel: 'Sites & CMS',
+    description: 'Site estático ultrarrápido servido por Nginx Alpine com suporte a HTML5, CSS3, JS e assets com gerenciador de arquivos web.',
+    iconName: 'Globe',
+    defaultImage: 'nginx:alpine',
+    defaultPort: 80,
+    defaultContainerName: 'static-site',
+    isWebUI: true,
+    isSite: true,
+    siteType: 'STATIC',
+    documentRoot: '/usr/share/nginx/html',
+    suggestedDomainPrefix: 'site',
+    fields: [
+      { key: 'SITE_TITLE', label: 'Título do Site', type: 'text', defaultValue: 'Meu Site Estático', required: true },
+    ],
+    generateEnv: (values) => `SITE_TITLE=${values.SITE_TITLE || 'Meu Site Estático'}`,
+  },
+  {
+    id: 'php-site',
+    name: 'Site PHP 8.2 Dinâmico',
+    category: 'sites_cms',
+    categoryLabel: 'Sites & CMS',
+    description: 'Servidor PHP 8.2 com Apache pronto para páginas dinâmicas, scripts, SQLite e APIs com gerenciador de arquivos web.',
+    iconName: 'Code',
+    defaultImage: 'php:8.2-apache',
+    defaultPort: 80,
+    defaultContainerName: 'php-site',
+    isWebUI: true,
+    isSite: true,
+    siteType: 'PHP',
+    documentRoot: '/var/www/html',
+    suggestedDomainPrefix: 'php',
+    fields: [
+      { key: 'APP_ENV', label: 'Ambiente', type: 'text', defaultValue: 'production', required: true },
+    ],
+    generateEnv: (values) => `APP_ENV=${values.APP_ENV || 'production'}`,
+  },
+  {
+    id: 'wordpress',
+    name: 'WordPress CMS 6.x',
+    category: 'sites_cms',
+    categoryLabel: 'Sites & CMS',
+    description: 'CMS WordPress completo com banco MariaDB 11 provisionado e conectado automaticamente na stack.',
+    iconName: 'Layout',
+    defaultImage: 'wordpress:php8.2-apache',
+    defaultPort: 80,
+    defaultContainerName: 'wordpress-site',
+    isWebUI: true,
+    isSite: true,
+    siteType: 'WORDPRESS',
+    hasDatabaseCompanion: true,
+    documentRoot: '/var/www/html',
+    suggestedDomainPrefix: 'blog',
+    fields: [
+      { key: 'WORDPRESS_DB_NAME', label: 'Nome do Banco', type: 'text', defaultValue: 'wordpress', required: true },
+      { key: 'WORDPRESS_DB_USER', label: 'Usuário do Banco', type: 'text', defaultValue: 'wp_user', required: true },
+      { key: 'WORDPRESS_DB_PASSWORD', label: 'Senha do Banco', type: 'password', defaultValue: 'WpPass2026!Sec', required: true },
+    ],
+    generateEnv: (values) =>
+      `WORDPRESS_DB_HOST=mariadb-srv:3306\n` +
+      `WORDPRESS_DB_USER=${values.WORDPRESS_DB_USER || 'wp_user'}\n` +
+      `WORDPRESS_DB_PASSWORD=${values.WORDPRESS_DB_PASSWORD || 'WpPass2026!Sec'}\n` +
+      `WORDPRESS_DB_NAME=${values.WORDPRESS_DB_NAME || 'wordpress'}`,
+  },
+  {
+    id: 'ecommerce-prestashop',
+    name: 'Loja Virtual PrestaShop E-commerce',
+    category: 'sites_cms',
+    categoryLabel: 'Sites & CMS',
+    description: 'Plataforma completa de comércio eletrônico com catálogo de produtos e banco MariaDB 11 integrado.',
+    iconName: 'ShoppingBag',
+    defaultImage: 'prestashop/prestashop:latest',
+    defaultPort: 80,
+    defaultContainerName: 'shop-site',
+    isWebUI: true,
+    isSite: true,
+    siteType: 'ECOMMERCE',
+    hasDatabaseCompanion: true,
+    documentRoot: '/var/www/html',
+    suggestedDomainPrefix: 'loja',
+    fields: [
+      { key: 'DB_NAME', label: 'Nome do Banco', type: 'text', defaultValue: 'prestashop', required: true },
+      { key: 'DB_USER', label: 'Usuário do Banco', type: 'text', defaultValue: 'shop_user', required: true },
+      { key: 'DB_PASSWD', label: 'Senha do Banco', type: 'password', defaultValue: 'ShopPass2026!Sec', required: true },
+    ],
+    generateEnv: (values) =>
+      `DB_SERVER=mariadb-srv:3306\n` +
+      `DB_USER=${values.DB_USER || 'shop_user'}\n` +
+      `DB_PASSWD=${values.DB_PASSWD || 'ShopPass2026!Sec'}\n` +
+      `DB_NAME=${values.DB_NAME || 'prestashop'}`,
   },
 ];

@@ -54,6 +54,12 @@ export interface Service {
     primaryContainer?: string;
     primaryPort?: number;
     instanceEnvs?: Record<string, string>;
+    isSite?: boolean;
+    siteType?: 'STATIC' | 'PHP' | 'WORDPRESS' | 'ECOMMERCE';
+    documentRoot?: string;
+    sftpUser?: string;
+    sftpPassword?: string;
+    sftpPort?: number;
   };
 }
 
@@ -73,6 +79,8 @@ export type ActiveTab =
   | 'hosts'
   | 'services'
   | 'service-detail'
+  | 'sites'
+  | 'databases'
   | 'domains'
   | 'default-service'
   | 'containers'
@@ -316,7 +324,7 @@ export interface TemplateField {
 export interface ServiceTemplate {
   id: string;
   name: string;
-  category: 'database' | 'cache_queue' | 'tools_web';
+  category: 'database' | 'cache_queue' | 'tools_web' | 'sites_cms';
   categoryLabel: string;
   description: string;
   iconName: string;
@@ -325,7 +333,22 @@ export interface ServiceTemplate {
   defaultContainerName: string;
   isWebUI: boolean;
   suggestedDomainPrefix?: string;
+  isSite?: boolean;
+  siteType?: 'STATIC' | 'PHP' | 'WORDPRESS' | 'ECOMMERCE';
+  documentRoot?: string;
+  hasDatabaseCompanion?: boolean;
   fields: TemplateField[];
   generateEnv: (values: Record<string, string>) => string;
   generateConnectionString?: (values: Record<string, string>, containerName: string) => string;
 }
+
+export type {
+  SiteFile,
+  SiteSFTPCredentials,
+  DatabaseColumn,
+  DatabaseForeignKey,
+  DatabaseTable,
+  DatabaseCatalog,
+  RedisKeyInfo,
+  RedisServerMetrics,
+} from '@stackorbit/shared';

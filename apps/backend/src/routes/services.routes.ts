@@ -23,6 +23,12 @@ export interface ServiceMetadata {
   primaryPort?: number;
   instanceEnvs?: Record<string, string>;
   publishedPorts?: Record<string, { hostPort: number; containerPort: number; protocol?: string }>;
+  isSite?: boolean;
+  siteType?: 'STATIC' | 'PHP' | 'WORDPRESS' | 'ECOMMERCE';
+  documentRoot?: string;
+  sftpUser?: string;
+  sftpPassword?: string;
+  sftpPort?: number;
 }
 
 export function parseServiceMetadata(notes?: string | null): { userNotes: string; meta: ServiceMetadata } {

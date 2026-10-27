@@ -55,10 +55,12 @@ import {
   Pencil,
   SlidersHorizontal,
   Box,
+  FolderOpen,
 } from 'lucide-react';
 import type { Service, Domain, DockerContainerInfo } from '../../types/index.ts';
 import { useNotification } from '../../context/NotificationContext.tsx';
 import { useAuth } from '../../context/AuthContext.tsx';
+import { SiteFileManager } from '../SiteFileManager.tsx';
 
 interface ServiceDetailViewProps {
   service: Service;
@@ -77,7 +79,18 @@ interface ServiceDetailViewProps {
   initialTab?: TabType;
 }
 
-type TabType = 'containers' | 'env' | 'general' | 'build' | 'docker' | 'domains' | 'terminal' | 'connection' | 'logs';
+type TabType =
+  | 'containers'
+  | 'files'
+  | 'sftp'
+  | 'env'
+  | 'general'
+  | 'build'
+  | 'docker'
+  | 'domains'
+  | 'terminal'
+  | 'connection'
+  | 'logs';
 
 interface EnvRow {
   id: string;
@@ -107,7 +120,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
 
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab') as TabType | null;
-  const validTabs: TabType[] = ['containers', 'env', 'general', 'build', 'docker', 'domains', 'terminal', 'connection', 'logs'];
+  const validTabs: TabType[] = ['containers', 'files', 'sftp', 'env', 'general', 'build', 'docker', 'domains', 'terminal', 'connection', 'logs'];
 
   const resolvedInitialTab = (tabFromUrl && validTabs.includes(tabFromUrl)) ? tabFromUrl : initialTab;
   const [activeTab, setActiveTabState] = useState<TabType>(resolvedInitialTab);
@@ -1877,6 +1890,48 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
             </span>
           </button>
 
+          {/* 1b. Gerenciador de Arquivos & Web IDE */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('files')}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+              activeTab === 'files'
+                ? 'bg-blue-600 text-white font-bold shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 truncate">
+              <FolderOpen className={`w-4 h-4 shrink-0 ${activeTab === 'files' ? 'text-white' : 'text-blue-500'}`} />
+              <span className="truncate">Arquivos & Web IDE</span>
+            </div>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+              activeTab === 'files' ? 'bg-blue-700 text-white' : 'bg-blue-50 text-blue-700 border border-blue-200'
+            }`}>
+              Web
+            </span>
+          </button>
+
+          {/* 1c. Acesso SFTP / FTP */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('sftp')}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+              activeTab === 'sftp'
+                ? 'bg-blue-600 text-white font-bold shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 truncate">
+              <Key className={`w-4 h-4 shrink-0 ${activeTab === 'sftp' ? 'text-white' : 'text-purple-500'}`} />
+              <span className="truncate">Acesso SFTP / FTP</span>
+            </div>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+              activeTab === 'sftp' ? 'bg-blue-700 text-white' : 'bg-purple-50 text-purple-700 border border-purple-200'
+            }`}>
+              :2222
+            </span>
+          </button>
+
           {/* 2. Envs */}
           <button
             type="button"
@@ -2946,6 +3001,73 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                   </table>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* TAB: ARQUIVOS & WEB IDE */}
+          {activeTab === 'files' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <FolderOpen className="w-4 h-4 text-blue-600" />
+                    <span>Gerenciador de Arquivos & Editor Web (IDE)</span>
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Navegue nas pastas do site, faça upload de arquivos e ZIPs com extração direta no servidor e edite o código em tempo real.
+                  </p>
+                </div>
+              </div>
+
+              <SiteFileManager serviceId={service.id} serviceName={service.name} />
+            </div>
+          )}
+
+          {/* TAB: ACESSO SFTP / FTP */}
+          {activeTab === 'sftp' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Key className="w-4 h-4 text-purple-600" />
+                    <span>Acesso Remoto SFTP / FTP</span>
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Conecte via FileZilla, Cyberduck, WinSCP ou VS Code SFTP para transferir arquivos diretamente para este container.
+                  </p>
+                </div>
+              </div>
+
+              <div className="max-w-xl space-y-4">
+                <div className="p-4 bg-purple-50/50 border border-purple-200/80 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-slate-500 font-sans font-bold">Host / Servidor:</span>
+                    <strong className="text-slate-900">169.58.122.148</strong>
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-slate-500 font-sans font-bold">Porta SFTP:</span>
+                    <strong className="text-purple-700">2222</strong>
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-slate-500 font-sans font-bold">Usuário:</span>
+                    <strong className="text-slate-900">site_{service.containerName.slice(0, 10)}</strong>
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-slate-500 font-sans font-bold">Caminho Remoto:</span>
+                    <strong className="text-slate-900">/</strong>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-600 space-y-2">
+                  <p className="font-bold text-slate-800">Como conectar no FileZilla:</p>
+                  <ol className="list-decimal pl-4 space-y-1 text-[11px] text-slate-500">
+                    <li>Abra o FileZilla e vá em <b>Arquivo &gt; Gerenciador de Sites</b>.</li>
+                    <li>Escolha o protocolo <b>SFTP - SSH File Transfer Protocol</b>.</li>
+                    <li>Insira o Host <code className="bg-slate-200 px-1 rounded">169.58.122.148</code> e a Porta <code className="bg-slate-200 px-1 rounded">2222</code>.</li>
+                    <li>Insira o usuário e a senha configurados para este site.</li>
+                  </ol>
+                </div>
+              </div>
             </div>
           )}
 

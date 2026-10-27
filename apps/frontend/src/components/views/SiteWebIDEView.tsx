@@ -702,7 +702,10 @@ export const SiteWebIDEView: React.FC = () => {
                   href={`https://${service.domains[0].domainName}`}
                   onClick={(e) => {
                     e.preventDefault();
-                    window.open(`https://${service.domains[0].domainName}?_nocache=${Date.now()}`, '_blank');
+                    const dName = service?.domains?.[0]?.domainName;
+                    if (dName) {
+                      window.open(`https://${dName}?_nocache=${Date.now()}`, '_blank');
+                    }
                   }}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -825,7 +828,10 @@ export const SiteWebIDEView: React.FC = () => {
             <button
               type="button"
               onClick={() => {
-                window.open(`https://${service.domains[0].domainName}?_nocache=${Date.now()}`, '_blank');
+                const dName = service?.domains?.[0]?.domainName;
+                if (dName) {
+                  window.open(`https://${dName}?_nocache=${Date.now()}`, '_blank');
+                }
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl text-xs font-bold border border-blue-200 transition-colors shadow-2xs"
               title="Abrir o site publicado em uma nova aba ignorando cache do navegador"

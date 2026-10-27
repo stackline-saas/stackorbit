@@ -1113,7 +1113,7 @@ export const DatabaseStudioView: React.FC = () => {
                           {activeTab.result.rows.map((row, idx) => (
                             <tr key={idx} className="hover:bg-slate-50">
                               <td className="py-2 px-3 text-slate-400 text-center text-[10px]">{idx + 1}</td>
-                              {Object.keys(activeTab.result.rows[0]).map((colName) => {
+                              {activeTab.result?.rows?.[0] ? Object.keys(activeTab.result.rows[0]).map((colName) => {
                                 const val = row[colName];
                                 return (
                                   <td key={colName} className="py-2 px-3 text-slate-800 truncate max-w-xs">
@@ -1128,7 +1128,7 @@ export const DatabaseStudioView: React.FC = () => {
                                     )}
                                   </td>
                                 );
-                              })}
+                              }) : null}
                             </tr>
                           ))}
                         </tbody>

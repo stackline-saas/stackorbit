@@ -336,6 +336,11 @@ export class DatabaseInspectorService {
           FROM information_schema.routines
           WHERE routine_schema = 'public'
         ),
+        'row_estimates', (
+          SELECT COALESCE(json_object_agg(relname, COALESCE(n_live_tup, 0)), '{}'::json)
+          FROM pg_stat_user_tables
+          WHERE schemaname = 'public'
+        ),
         'columns', (
           SELECT COALESCE(json_agg(c), '[]'::json)
           FROM (
@@ -428,6 +433,7 @@ export class DatabaseInspectorService {
     const columnsRows: any[] = data?.columns || [];
     const pkRows: any[] = data?.pks || [];
     const fkRows: any[] = data?.fks || [];
+    const rowEstimates: Record<string, number> = data?.row_estimates || {};
 
     // Mapeia PKs e FKs
     const pkMap: Record<string, string[]> = {};
@@ -466,7 +472,7 @@ export class DatabaseInspectorService {
       tables.push({
         name: tableName,
         schema: 'public',
-        rowsEstimate: 0,
+        rowsEstimate: Number(rowEstimates[tableName] || 0),
         columns,
         primaryKeys: pks,
         foreignKeys: fks,
@@ -510,6 +516,20 @@ export class DatabaseInspectorService {
        ORDER BY TABLE_NAME;`,
       activeDb
     );
+
+    let routinesRows: any[] = [];
+    try {
+      routinesRows = await this.queryMySQL(
+        conn,
+        `SELECT ROUTINE_NAME
+         FROM information_schema.ROUTINES
+         WHERE ROUTINE_SCHEMA = '${activeDb}'
+         ORDER BY ROUTINE_NAME;`,
+        activeDb
+      );
+    } catch {
+      // Ignora se não houver permissão em ROUTINES
+    }
 
     const columnsRows = await this.queryMySQL(
       conn,
@@ -588,7 +608,7 @@ export class DatabaseInspectorService {
       version,
       tables,
       views: viewsRows.map((r: any) => r.TABLE_NAME),
-      functions: [],
+      functions: routinesRows.map((r: any) => r.ROUTINE_NAME),
       availableDatabases: [activeDb],
     };
   }

@@ -39,6 +39,7 @@ import type {
 } from '../../types/index.ts';
 import { DatabaseDiagramMER } from '../DatabaseDiagramMER.tsx';
 import { RedisStudioView } from '../RedisStudioView.tsx';
+import { DatabaseTreeSidebar } from '../DatabaseTreeSidebar.tsx';
 
 interface StudioTab {
   id: string;
@@ -61,9 +62,6 @@ export const DatabaseStudioView: React.FC = () => {
   const [catalog, setCatalog] = useState<DatabaseCatalog | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Filtro de busca de tabelas na barra lateral
-  const [tableSearchTerm, setTableSearchTerm] = useState('');
 
   // Workspace Multi-Tabs (estilo DBeaver / DataGrip)
   const [tabs, setTabs] = useState<StudioTab[]>([]);
@@ -234,7 +232,7 @@ export const DatabaseStudioView: React.FC = () => {
   };
 
   // Abrir uma nova aba de Consulta SQL
-  const openNewSqlTab = (initialQuery?: string) => {
+  const openNewSqlTab = (initialQuery?: string, tabTitle?: string) => {
     const count = tabs.filter((t) => t.type === 'sql').length + 1;
     const tabId = `sql-${Date.now()}`;
     const defaultSql =
@@ -246,7 +244,7 @@ export const DatabaseStudioView: React.FC = () => {
     const newTab: StudioTab = {
       id: tabId,
       type: 'sql',
-      title: `Consulta ${count}`,
+      title: tabTitle ? `SQL: ${tabTitle}` : `Consulta ${count}`,
       query: defaultSql,
       result: null,
       error: null,
@@ -379,14 +377,6 @@ export const DatabaseStudioView: React.FC = () => {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  // Filtragem de tabelas na barra lateral
-  const filteredTables = useMemo(() => {
-    if (!catalog?.tables) return [];
-    if (!tableSearchTerm.trim()) return catalog.tables;
-    const term = tableSearchTerm.toLowerCase();
-    return catalog.tables.filter((t) => t.name.toLowerCase().includes(term));
-  }, [catalog?.tables, tableSearchTerm]);
-
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const activeTable = activeTab?.tableName
     ? catalog?.tables.find((t) => t.name === activeTab.tableName)
@@ -504,136 +494,20 @@ export const DatabaseStudioView: React.FC = () => {
       {/* 2. ÁREA DE TRABALHO: BARRA LATERAL (TABELAS) + WORKSPACE DE ABAS (ESTILO DBEAVER) */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* ========================================================
-            BARRA LATERAL ESQUERDA: NAVEGADOR DE TABELAS (ESTILO DBEAVER)
+            BARRA LATERAL ESQUERDA: NAVEGADOR DE OBJETOS HIERÁRQUICO (ESTILO DBEAVER / DATAGRIP)
            ======================================================== */}
-        <aside className="w-64 md:w-72 bg-white border-r border-slate-200 flex flex-col shrink-0 select-none">
-          {/* Header da Sidebar */}
-          <div className="p-3 border-b border-slate-200 bg-slate-50 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                <TableIcon className="w-3.5 h-3.5 text-blue-600" />
-                <span>Tabelas & Views</span>
-              </span>
-              <span className="text-[10px] font-mono font-bold bg-slate-200/80 text-slate-600 px-2 py-0.5 rounded-full">
-                {catalog?.tables.length || 0}
-              </span>
-            </div>
-
-            {/* Input de Busca de Tabelas */}
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-              <input
-                type="text"
-                value={tableSearchTerm}
-                onChange={(e) => setTableSearchTerm(e.target.value)}
-                placeholder="Filtrar tabelas..."
-                className="w-full pl-8 pr-7 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-slate-800"
-              />
-              {tableSearchTerm && (
-                <button
-                  type="button"
-                  onClick={() => setTableSearchTerm('')}
-                  className="absolute right-2 top-2 text-slate-400 hover:text-slate-600"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Lista de Tabelas */}
-          <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
-            {filteredTables.length === 0 ? (
-              <div className="p-4 text-center text-xs text-slate-400 italic">
-                Nenhuma tabela encontrada.
-              </div>
-            ) : (
-              filteredTables.map((tbl) => {
-                const isTabOpen = tabs.some((t) => t.tableName === tbl.name);
-                const isCurrentActive = activeTab?.tableName === tbl.name;
-
-                return (
-                  <div
-                    key={tbl.name}
-                    onClick={() => openTableTab(tbl.name)}
-                    className={`group flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs cursor-pointer font-mono transition-colors ${
-                      isCurrentActive
-                        ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200'
-                        : isTabOpen
-                        ? 'bg-slate-100 text-slate-900 font-medium'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 truncate pr-1">
-                      <TableIcon className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                      <span className="truncate">{tbl.name}</span>
-                    </div>
-
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] text-slate-400 font-sans group-hover:hidden">
-                        {tbl.columns.length} col
-                      </span>
-
-                      <div className="hidden group-hover:flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openNewSqlTab(`SELECT * FROM "${tbl.name}" LIMIT 50;`);
-                          }}
-                          className="p-1 text-slate-400 hover:text-blue-600 rounded"
-                          title="Abrir em Consulta SQL"
-                        >
-                          <Terminal className="w-3 h-3" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            copyToClipboard(tbl.name, tbl.name);
-                          }}
-                          className="p-1 text-slate-400 hover:text-slate-700 rounded"
-                          title="Copiar nome da tabela"
-                        >
-                          {copiedKey === tbl.name ? (
-                            <Check className="w-3 h-3 text-emerald-600" />
-                          ) : (
-                            <Copy className="w-3 h-3" />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-
-            {/* Views do Catálogo */}
-            {catalog && catalog.views.length > 0 && (
-              <div className="pt-3 border-t border-slate-200 mt-2">
-                <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Views ({catalog.views.length})
-                </div>
-                {catalog.views.map((vw) => (
-                  <div
-                    key={vw}
-                    onClick={() => openNewSqlTab(`SELECT * FROM "${vw}" LIMIT 50;`)}
-                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-slate-500 hover:bg-slate-100 cursor-pointer font-mono"
-                  >
-                    <FileText className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="truncate">{vw}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Rodapé da Sidebar */}
-          <div className="p-2.5 border-t border-slate-200 bg-slate-50 text-[11px] text-slate-500 flex items-center justify-between">
-            <span className="font-mono">{catalog?.version?.split(' ')[0] || 'SQL'}</span>
-            <span>Porta :{service?.internalPort || 5432}</span>
-          </div>
-        </aside>
+        <DatabaseTreeSidebar
+          catalog={catalog}
+          activeTableName={activeTab?.tableName}
+          openTableNames={tabs.filter((t) => t.tableName).map((t) => t.tableName as string)}
+          onOpenTable={openTableTab}
+          onOpenSql={(query, title) => openNewSqlTab(query, title)}
+          onRefresh={() => loadDatabase(catalog?.databaseName)}
+          serviceName={service?.name}
+          servicePort={service?.internalPort}
+          copiedKey={copiedKey}
+          onCopy={copyToClipboard}
+        />
 
         {/* ========================================================
             PAINEL PRINCIPAL: SISTEMA DE ABAS (ESTILO DBEAVER)

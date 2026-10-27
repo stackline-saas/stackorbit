@@ -330,6 +330,38 @@ export const SitesView: React.FC<SitesViewProps> = ({
                       </a>
                     )}
                   </div>
+
+                  {/* Detalhes de Publicação no Cadastro do Site */}
+                  <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Última publicação:</span>
+                    <span className="font-semibold text-slate-700">
+                      {site.meta?.lastPublishedAt
+                        ? new Date(site.meta.lastPublishedAt).toLocaleString('pt-BR', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : 'Ainda não publicado'}
+                    </span>
+                  </div>
+
+                  {site.meta?.hasPendingChanges && (
+                    <div className="mt-2 px-2.5 py-1.5 bg-amber-50 border border-amber-200/80 rounded-xl flex items-center justify-between text-[11px] text-amber-800 font-semibold">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                        Alterações pendentes de publicação
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/sites/${site.id}/files`)}
+                        className="text-[10px] font-bold text-amber-900 underline hover:text-amber-700"
+                      >
+                        Publicar
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Card Actions Footer */}

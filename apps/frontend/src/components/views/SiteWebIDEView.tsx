@@ -1234,6 +1234,34 @@ export const SiteWebIDEView: React.FC = () => {
                   }}
                 />
               </div>
+
+              {/* Rodapé Estilo VS Code com Status de Publicação e Última Publicação */}
+              <div className="h-6 bg-slate-100 border-t border-slate-200 px-3 flex items-center justify-between text-[11px] text-slate-500 font-mono select-none shrink-0">
+                <div className="flex items-center gap-3">
+                  {publishStatus === 'pending' ? (
+                    <span className="flex items-center gap-1.5 text-amber-700 font-bold">
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                      Alterações pendentes de publicação
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-emerald-700 font-bold">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      Publicado no Container
+                    </span>
+                  )}
+                  {lastPublishedAt && (
+                    <span className="text-slate-400 hidden sm:inline">
+                      • Última publicação: {lastPublishedAt}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <span>Ln {cursorPos.line}, Col {cursorPos.col}</span>
+                  <span className="hidden md:inline">UTF-8</span>
+                  <span className="uppercase text-blue-600 font-semibold">{activeTab.language}</span>
+                </div>
+              </div>
             </div>
           ) : (
             /* Tela Vazia quando nenhum arquivo está aberto */

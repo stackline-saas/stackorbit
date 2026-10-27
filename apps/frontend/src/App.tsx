@@ -729,7 +729,7 @@ function MainApp() {
     );
   });
 
-  const enableBetaFeatures = stats?.enableBetaFeatures ?? (import.meta.env.DEV ? true : false);
+  const enableBetaFeatures = stats?.enableBetaFeatures ?? true;
 
   const isIdePage = location.pathname.startsWith('/sites/') && location.pathname.includes('/files');
 

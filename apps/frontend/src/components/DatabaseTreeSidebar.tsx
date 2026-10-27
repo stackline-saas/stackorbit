@@ -121,6 +121,22 @@ export const DatabaseTreeSidebar: React.FC<DatabaseTreeSidebarProps> = ({
     });
   }, []);
 
+  const toggleTableNode = useCallback((tableName: string) => {
+    const tableNodeId = `table-${tableName}`;
+    const colsNodeId = `cols-${tableName}`;
+    setExpandedNodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(tableNodeId)) {
+        next.delete(tableNodeId);
+        next.delete(colsNodeId);
+      } else {
+        next.add(tableNodeId);
+        next.add(colsNodeId); // auto expande colunas ao abrir a tabela
+      }
+      return next;
+    });
+  }, []);
+
   // Filtragem inteligente de tabelas, colunas, views e funções
   const { filteredTables, filteredViews, filteredFunctions, matchingColMap } = useMemo(() => {
     if (!catalog) {
@@ -352,7 +368,7 @@ export const DatabaseTreeSidebar: React.FC<DatabaseTreeSidebarProps> = ({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              toggleNode(tableNodeId);
+                              toggleTableNode(tbl.name);
                             }}
                             className="p-0.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-200/60"
                             title={isTableExpanded ? 'Recolher colunas' : 'Expandir colunas'}

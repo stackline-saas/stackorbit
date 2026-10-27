@@ -17,6 +17,7 @@
 
 <p align="center">
   <a href="#-instalação-rápida-em-1-comando">Instalação Rápida</a> •
+  <a href="#-interface--telas-do-sistema">Telas do Sistema</a> •
   <a href="#-recursos-principais">Recursos</a> •
   <a href="#-arquitetura-do-sistema">Arquitetura</a> •
   <a href="#-primeiros-passos--credenciais">Acesso Inicial</a> •
@@ -125,6 +126,43 @@ Assim que o script concluir a instalação, acesse o painel pelo navegador:
 
 ---
 
+## 📸 Interface & Telas do Sistema
+
+### 1. 📊 Dashboard Central & Monitoramento de Infraestrutura
+Visão consolidada da saúde do Docker Engine, status do proxy reverso Traefik v3, criptografia Cloudflare Full (Strict), serviços cadastrados, containers em execução e auditoria em tempo real.
+
+![Dashboard Central](docs/screenshots/dashboard.png)
+
+---
+
+### 2. 🗄️ Database Studio: Object Explorer Hierárquico
+Navegador de banco de dados moderno (estilo DBeaver / TablePlus) com contagem em tempo real de registros das tabelas (`n_live_tup`), detalhamento de colunas com distinção de Chaves Primárias 🔑 (PK), Chaves Estrangeiras 🔗 (FK), constraints, índices, views e funções stored procedures `ƒ(x)`.
+
+![Database Studio - Object Explorer](docs/screenshots/database_studio_explorer.png)
+
+---
+
+### 3. 🕸️ Database Studio: Diagrama MER Relacional Interativo
+Mapeamento visual e automático de relacionamentos entre tabelas. As conexões de chaves estrangeiras ligam-se diretamente ao campo específico de origem e destino com pontos de ancoragem, minimização inteligente limitada a 5 campos para visualização limpa e canvas expansível.
+
+![Database Studio - Diagrama MER Relacional](docs/screenshots/database_studio_mer.png)
+
+---
+
+### 4. 💻 Sites Web & Web IDE Integrada
+Gerenciamento de sites com Monaco Editor embutido no navegador, explorador de arquivos e pastas, autosave configurável, atalho de publicação direta no container Nginx Alpine e suporte a download/upload ZIP e SFTP.
+
+![Sites Web e Web IDE Monaco](docs/screenshots/sites_web_ide.png)
+
+---
+
+### 5. ⚡ Redis Studio & Terminal CLI Interativo
+Painel de controle para instâncias Redis com telemetria de memória e conexões, explorador de chaves com suporte a TTL e múltiplos tipos (String, Hash, List, Set, ZSet) e Terminal CLI Web interativo direto na interface.
+
+![Redis Studio](docs/screenshots/redis_studio.png)
+
+---
+
 ## ✨ Recursos Principais
 
 - 🌐 **Roteamento Dinâmico sem Reinicialização:** Crie, altere e aponte múltiplos domínios e subdomínios para qualquer container instantaneamente usando o file provider do Traefik v3.
@@ -132,6 +170,9 @@ Assim que o script concluir a instalação, acesse o painel pelo navegador:
 - 🔒 **Terminação SSL Cloudflare Full (Strict):** Compatibilidade total com certificados Origin CA da Cloudflare, permitindo túneis TLS ponta a ponta criptografados sem falhas de verificação de autoridade.
 - 🎯 **Fallback Catch-All Inteligente:** Defina um serviço de contingência global para capturar requisições de domínios desconhecidos ou subdomínios órfãos.
 - 📦 **Git Deploy Automatizado:** Conecte seus repositórios GitHub / GitLab via Webhooks. O background worker clona, compila e sobe os novos containers sem interromper o tráfego existente.
+- 💻 **Sites Web & Web IDE Monaco:** Gerencie arquivos, edite código HTML/JS/CSS diretamente pelo navegador e publique instantaneamente em containers Nginx Alpine dedicados com SSL automático.
+- 🗄️ **Database Studio Completo:** Object Explorer hierárquico profissional para PostgreSQL/MySQL, visualização e edição de registros, abas de estrutura e Diagrama MER interativo com minimização de tabelas e conexões de chaves campo a campo.
+- ⚡ **Redis Studio & CLI Web:** Telemetria de memória, inspeção e alteração de chaves com TTL, suporte a todos os tipos de dados e Terminal CLI Web em tempo real.
 - 🔄 **Atualização com 1 Clique (Zero Downtime):** Notificação em tempo real de novas versões lançadas no GitHub, com botão de auto-atualização direta no painel web ou via script de linha de comando.
 - 📊 **Monitoramento em Tempo Real:** Acompanhe consumo de CPU, Memória, conexões ativas e logs de containers diretamente pela interface web sem precisar abrir o terminal SSH.
 - 🛡️ **Auditoria Completa (Audit Logs):** Rastreamento de todas as ações administrativas (criação de serviços, deploys, alteração de DNS, autenticações) salvas no PostgreSQL 16.

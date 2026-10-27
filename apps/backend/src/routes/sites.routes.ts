@@ -250,6 +250,28 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
   }
 });
 
+// Helper para persistir estado de publicação no metadata do site
+async function markSitePendingChanges(serviceId: string, hasPending: boolean, publishedAt?: string) {
+  try {
+    const service = await prisma.service.findUnique({ where: { id: serviceId } });
+    if (!service) return;
+    const { userNotes, meta } = parseServiceMetadata(service.notes);
+    meta.hasPendingChanges = hasPending;
+    if (publishedAt) {
+      meta.lastPublishedAt = publishedAt;
+    }
+    await prisma.service.update({
+      where: { id: serviceId },
+      data: {
+        notes: serializeServiceMetadata(userNotes, meta),
+        ...(publishedAt ? { lastBuiltAt: new Date(publishedAt) } : {}),
+      },
+    });
+  } catch (err: any) {
+    console.warn('Erro ao atualizar metadata de publicação do site:', err.message);
+  }
+}
+
 // 2.1 Publicar alterações do site no container
 router.post('/:id/publish', requireAuth, async (req: AuthenticatedRequest, res) => {
   const { id } = req.params;
@@ -260,6 +282,9 @@ router.post('/:id/publish', requireAuth, async (req: AuthenticatedRequest, res) 
 
     // Sincroniza todos os arquivos do site para o container e recarrega o Nginx
     await siteFilesService.syncFilesToContainer(id);
+
+    const publishedAt = new Date().toISOString();
+    await markSitePendingChanges(id, false, publishedAt);
 
     await logAudit({
       userId: req.user?.id,
@@ -272,7 +297,7 @@ router.post('/:id/publish', requireAuth, async (req: AuthenticatedRequest, res) 
 
     return res.json({
       success: true,
-      publishedAt: new Date().toISOString(),
+      publishedAt,
       message: 'Site publicado e no ar com sucesso!',
     });
   } catch (err: any) {
@@ -383,6 +408,7 @@ const handleSaveContent = async (req: AuthenticatedRequest, res: any) => {
 
   try {
     await siteFilesService.writeFile(id, filePath, content);
+    await markSitePendingChanges(id, true);
     return res.json({ success: true, message: 'Arquivo salvo com sucesso.' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Erro ao salvar arquivo.' });

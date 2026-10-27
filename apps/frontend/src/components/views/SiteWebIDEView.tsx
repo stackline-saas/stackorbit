@@ -68,8 +68,25 @@ export const SiteWebIDEView: React.FC = () => {
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
 
   // Status de Publicação ('idle' = No ar, 'pending' = Aguardando publicação, 'publishing' = Publicando)
-  const [publishStatus, setPublishStatus] = useState<'idle' | 'pending' | 'publishing'>('idle');
-  const [lastPublishedAt, setLastPublishedAt] = useState<string | null>(null);
+  const [publishStatus, setPublishStatus] = useState<'idle' | 'pending' | 'publishing'>(() => {
+    return (localStorage.getItem(`site_pub_status_${id}`) as any) || 'idle';
+  });
+  const [lastPublishedAt, setLastPublishedAt] = useState<string | null>(() => {
+    return localStorage.getItem(`site_last_pub_${id}`);
+  });
+
+  // Persiste status de publicação no localStorage para sobreviver a F5
+  useEffect(() => {
+    if (id) {
+      localStorage.setItem(`site_pub_status_${id}`, publishStatus);
+    }
+  }, [id, publishStatus]);
+
+  useEffect(() => {
+    if (id && lastPublishedAt) {
+      localStorage.setItem(`site_last_pub_${id}`, lastPublishedAt);
+    }
+  }, [id, lastPublishedAt]);
 
   // Auto-save com debounce (0 = manual, 1000 = 1s, 2000 = 2s, 5000 = 5s)
   const [autoSaveDelay, setAutoSaveDelay] = useState<number>(() => {
@@ -105,6 +122,23 @@ export const SiteWebIDEView: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         setService(data);
+        if (data.meta) {
+          if (data.meta.hasPendingChanges) {
+            setPublishStatus('pending');
+          } else {
+            setPublishStatus((prev) => (prev === 'publishing' ? 'publishing' : 'idle'));
+          }
+
+          if (data.meta.lastPublishedAt) {
+            const pubDate = new Date(data.meta.lastPublishedAt);
+            const timeStr = pubDate.toLocaleTimeString('pt-BR', {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+            });
+            setLastPublishedAt(timeStr);
+          }
+        }
       }
     } catch (err) {
       console.error('Erro ao carregar detalhes do serviço:', err);
@@ -344,13 +378,19 @@ export const SiteWebIDEView: React.FC = () => {
       });
 
       if (res.ok) {
-        const timeStr = new Date().toLocaleTimeString('pt-BR', {
+        const resData = await res.json().catch(() => ({}));
+        const pubDate = resData.publishedAt ? new Date(resData.publishedAt) : new Date();
+        const timeStr = pubDate.toLocaleTimeString('pt-BR', {
           hour: '2-digit',
           minute: '2-digit',
           second: '2-digit',
         });
         setLastPublishedAt(timeStr);
         setPublishStatus('idle');
+        if (id) {
+          localStorage.setItem(`site_pub_status_${id}`, 'idle');
+          localStorage.setItem(`site_last_pub_${id}`, timeStr);
+        }
         setSaveSuccessMessage('Site publicado e no ar com sucesso!');
         setTimeout(() => setSaveSuccessMessage(null), 4000);
       } else {

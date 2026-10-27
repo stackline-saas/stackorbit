@@ -29,6 +29,8 @@ export interface ServiceMetadata {
   sftpUser?: string;
   sftpPassword?: string;
   sftpPort?: number;
+  lastPublishedAt?: string;
+  hasPendingChanges?: boolean;
 }
 
 export function parseServiceMetadata(notes?: string | null): { userNotes: string; meta: ServiceMetadata } {

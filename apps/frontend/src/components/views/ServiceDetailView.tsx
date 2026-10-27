@@ -628,7 +628,109 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
   const [instanceEnvEffectiveMap, setInstanceEnvEffectiveMap] = useState<Record<string, string>>({});
   const [instanceEnvLoading, setInstanceEnvLoading] = useState(false);
   const [instanceEnvSaving, setInstanceEnvSaving] = useState(false);
-  const [instanceEnvTab, setInstanceEnvTab] = useState<'visual' | 'raw'>('visual');
+  const [instanceEnvTab, setInstanceEnvTab] = useState<'visual' | 'raw' | 'merged'>('visual');
+  const [instanceEnvFilter, setInstanceEnvFilter] = useState('');
+  const [instanceEnvVisibleSecrets, setInstanceEnvVisibleSecrets] = useState<Record<number, boolean>>({});
+
+  // Convert instanceEnvCustomStr to structured rows for visual table
+  const instanceEnvRows = useMemo(() => {
+    if (!instanceEnvCustomStr.trim()) return [];
+    return instanceEnvCustomStr
+      .split('\n')
+      .map((line, idx) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return null;
+        const eqIdx = trimmed.indexOf('=');
+        const k = eqIdx === -1 ? trimmed : trimmed.substring(0, eqIdx).trim();
+        const v = eqIdx === -1 ? '' : trimmed.substring(eqIdx + 1).trim();
+        const lowerKey = k.toLowerCase();
+        const isSecret =
+          lowerKey.includes('pass') ||
+          lowerKey.includes('secret') ||
+          lowerKey.includes('key') ||
+          lowerKey.includes('token') ||
+          lowerKey.includes('auth');
+        return {
+          id: `inst-env-${idx}-${k}`,
+          key: k,
+          value: v,
+          isSecret,
+        };
+      })
+      .filter((r): r is { id: string; key: string; value: string; isSecret: boolean } => r !== null);
+  }, [instanceEnvCustomStr]);
+
+  const filteredInstanceEnvRows = useMemo(() => {
+    if (!instanceEnvFilter.trim()) return instanceEnvRows;
+    const lower = instanceEnvFilter.toLowerCase();
+    return instanceEnvRows.filter(
+      (r) => r.key.toLowerCase().includes(lower) || r.value.toLowerCase().includes(lower)
+    );
+  }, [instanceEnvRows, instanceEnvFilter]);
+
+  const handleUpdateInstanceEnvRow = (index: number, newKey: string, newValue: string) => {
+    const current = [...instanceEnvRows];
+    if (index >= 0 && index < current.length) {
+      current[index].key = newKey.trim().toUpperCase();
+      current[index].value = newValue;
+      setInstanceEnvCustomStr(current.map((r) => `${r.key}=${r.value}`).join('\n'));
+    }
+  };
+
+  const handleRemoveInstanceEnvRow = (index: number) => {
+    const current = [...instanceEnvRows];
+    current.splice(index, 1);
+    setInstanceEnvCustomStr(current.map((r) => `${r.key}=${r.value}`).join('\n'));
+  };
+
+  const handleAddInstanceEnvRow = () => {
+    const current = [...instanceEnvRows, { id: `new-${Date.now()}`, key: 'NOVA_VARIAVEL', value: '', isSecret: false }];
+    setInstanceEnvCustomStr(current.map((r) => `${r.key}=${r.value}`).join('\n'));
+  };
+
+  const handleInsertInstancePreset = (preset: 'common' | 'db_postgres' | 'redis') => {
+    let toAppend = '';
+    if (preset === 'common') {
+      toAppend = `PORT=80\nNODE_ENV=production\nTZ=America/Sao_Paulo\nLOG_LEVEL=info`;
+    } else if (preset === 'db_postgres') {
+      toAppend = `POSTGRES_USER=postgres\nPOSTGRES_PASSWORD=Postgres2026!Sec\nPOSTGRES_DB=app_db`;
+    } else if (preset === 'redis') {
+      toAppend = `REDIS_PASSWORD=Redis2026!Sec`;
+    }
+    const next = instanceEnvCustomStr.trim() ? `${instanceEnvCustomStr.trim()}\n${toAppend}` : toAppend;
+    setInstanceEnvCustomStr(next);
+    showNotification('success', 'Preset Adicionado', 'Variáveis inseridas.');
+  };
+
+  const toggleInstanceSecret = (idx: number) => {
+    setInstanceEnvVisibleSecrets((prev) => ({ ...prev, [idx]: !prev[idx] }));
+  };
+
+  const handleExportInstanceEnv = () => {
+    const blob = new Blob([instanceEnvCustomStr], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${instanceEnvModalContainer || 'instance'}.env`;
+    link.click();
+    URL.revokeObjectURL(url);
+    showNotification('success', 'Download Iniciado', 'Arquivo .env exportado com sucesso.');
+  };
+
+  const handleImportInstanceEnv = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        setInstanceEnvCustomStr(content);
+        showNotification('success', 'Arquivo Importado', 'Conteúdo do .env carregado no editor.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
 
   // Handler: Criar nova instância na stack
   const handleAddInstance = async (e: React.FormEvent) => {
@@ -5880,9 +5982,9 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
       {/* Modal: Variáveis de Ambiente da Instância Individual (Portainer Style) */}
       {instanceEnvModalContainer && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+            <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
                   <SlidersHorizontal className="w-4 h-4" />
@@ -5895,7 +5997,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500">
-                    Substitua variáveis globais ou configure parâmetros exclusivos desta réplica (estilo Portainer).
+                    Defina variáveis e credenciais exclusivas desta instância.
                   </p>
                 </div>
               </div>
@@ -5908,32 +6010,101 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
               </button>
             </div>
 
-            {/* Navigation Tabs */}
-            <div className="px-5 pt-3 border-b border-slate-100 flex items-center gap-4 text-xs font-semibold bg-white">
-              <button
-                type="button"
-                onClick={() => setInstanceEnvTab('visual')}
-                className={`pb-2.5 border-b-2 flex items-center gap-1.5 transition-colors ${
-                  instanceEnvTab === 'visual'
-                    ? 'border-purple-600 text-purple-700'
-                    : 'border-transparent text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <Eye className="w-3.5 h-3.5" />
-                <span>Visualização Mesclada ({Object.keys(instanceEnvEffectiveMap).length})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setInstanceEnvTab('raw')}
-                className={`pb-2.5 border-b-2 flex items-center gap-1.5 transition-colors ${
-                  instanceEnvTab === 'raw'
-                    ? 'border-purple-600 text-purple-700'
-                    : 'border-transparent text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <Pencil className="w-3.5 h-3.5" />
-                <span>Customização desta Instância (.env)</span>
-              </button>
+            {/* Navigation Tabs & Presets Toolbar */}
+            <div className="px-5 py-2.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2.5 bg-slate-50/50">
+              {/* Visual vs Raw vs Merged Mode Toggle */}
+              <div className="flex items-center bg-slate-200 p-0.5 rounded-lg text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setInstanceEnvTab('visual')}
+                  className={`px-3 py-1 rounded-md transition-colors ${
+                    instanceEnvTab === 'visual'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Tabela Visual
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInstanceEnvTab('raw')}
+                  className={`px-3 py-1 rounded-md transition-colors ${
+                    instanceEnvTab === 'raw'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Arquivo .env (Texto)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInstanceEnvTab('merged')}
+                  className={`px-3 py-1 rounded-md transition-colors flex items-center gap-1 ${
+                    instanceEnvTab === 'merged'
+                      ? 'bg-white text-purple-700 shadow-xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Visão Mesclada ({Object.keys(instanceEnvEffectiveMap).length})</span>
+                </button>
+              </div>
+
+              {/* Quick Presets & Export/Import Tools */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="flex items-center bg-white border border-slate-200 rounded-lg p-0.5 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => handleInsertInstancePreset('common')}
+                    className="px-2 py-0.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-100 rounded transition-colors"
+                    title="Inserir variáveis comuns (PORT, NODE_ENV, TZ)"
+                  >
+                    + Comuns
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertInstancePreset('db_postgres')}
+                    className="px-2 py-0.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-100 rounded transition-colors"
+                    title="Inserir credenciais PostgreSQL"
+                  >
+                    + Postgres
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertInstancePreset('redis')}
+                    className="px-2 py-0.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-100 rounded transition-colors"
+                    title="Inserir senha Redis"
+                  >
+                    + Redis
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleCopyClipboard(instanceEnvCustomStr, 'Variáveis')}
+                  className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-white rounded border border-slate-200 transition-colors shadow-2xs"
+                  title="Copiar todas as variáveis"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportInstanceEnv}
+                  className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-white rounded border border-slate-200 transition-colors shadow-2xs"
+                  title="Baixar arquivo .env"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                </button>
+
+                <label
+                  className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-white rounded border border-slate-200 transition-colors shadow-2xs cursor-pointer"
+                  title="Importar de arquivo .env local"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <input type="file" accept=".env,text/plain" onChange={handleImportInstanceEnv} className="hidden" />
+                </label>
+              </div>
             </div>
 
             {/* Body */}
@@ -5944,18 +6115,153 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                   <span>Carregando variáveis da instância...</span>
                 </div>
               ) : instanceEnvTab === 'visual' ? (
+                /* TABELA VISUAL */
+                <div className="space-y-3">
+                  {/* Toolbar de Busca e Adição */}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="relative flex-1 max-w-sm">
+                      <input
+                        type="text"
+                        placeholder="Filtrar variáveis por chave ou valor..."
+                        value={instanceEnvFilter}
+                        onChange={(e) => setInstanceEnvFilter(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddInstanceEnvRow}
+                      className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Adicionar Variável</span>
+                    </button>
+                  </div>
+
+                  {/* Tabela de Chave / Valor */}
+                  <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                    <table className="w-full text-left text-xs font-mono">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px] tracking-wider font-sans">
+                        <tr>
+                          <th className="px-4 py-2.5 w-5/12">Chave (KEY)</th>
+                          <th className="px-4 py-2.5 w-6/12">Valor (VALUE)</th>
+                          <th className="px-4 py-2.5 w-1/12 text-right">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {filteredInstanceEnvRows.length > 0 ? (
+                          filteredInstanceEnvRows.map((row, idx) => {
+                            const isRevealed = instanceEnvVisibleSecrets[idx] || false;
+                            return (
+                              <tr key={row.id} className="hover:bg-slate-50/70 transition-colors">
+                                <td className="px-4 py-2">
+                                  <input
+                                    type="text"
+                                    value={row.key}
+                                    onChange={(e) => handleUpdateInstanceEnvRow(idx, e.target.value, row.value)}
+                                    placeholder="NOME_DA_VARIAVEL"
+                                    className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded font-mono font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-purple-500 uppercase text-xs"
+                                  />
+                                </td>
+                                <td className="px-4 py-2">
+                                  <div className="relative flex items-center">
+                                    <input
+                                      type={row.isSecret && !isRevealed ? 'password' : 'text'}
+                                      value={row.value}
+                                      onChange={(e) => handleUpdateInstanceEnvRow(idx, row.key, e.target.value)}
+                                      placeholder="valor_da_variavel"
+                                      className="w-full pr-8 pl-2 py-1 bg-slate-50 border border-slate-200 rounded font-mono text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-purple-500 text-xs"
+                                    />
+                                    {row.isSecret && (
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleInstanceSecret(idx)}
+                                        className="absolute right-2 text-slate-400 hover:text-slate-700"
+                                        title={isRevealed ? 'Ocultar segredo' : 'Exibir segredo'}
+                                      >
+                                        {isRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-2 text-right">
+                                  <div className="flex items-center justify-end gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyClipboard(`${row.key}=${row.value}`, row.key)}
+                                      className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded"
+                                      title="Copiar linha"
+                                    >
+                                      <Copy className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveInstanceEnvRow(idx)}
+                                      className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded"
+                                      title="Remover variável"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan={3} className="px-4 py-8 text-center text-slate-400 font-sans text-xs">
+                              <p className="mb-2">Nenhuma variável exclusiva configurada para esta instância.</p>
+                              <button
+                                type="button"
+                                onClick={handleAddInstanceEnvRow}
+                                className="inline-flex items-center gap-1 text-purple-600 hover:text-purple-800 font-semibold"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>Adicionar primeira variável</span>
+                              </button>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : instanceEnvTab === 'raw' ? (
+                /* ARQUIVO .ENV (TEXTO) */
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-slate-700">
+                      Editor Customizado .env para <span className="font-mono text-purple-700">{instanceEnvModalContainer}</span>:
+                    </label>
+                    <span className="text-[11px] text-slate-400 font-mono">Formato KEY=VALUE</span>
+                  </div>
+
+                  <textarea
+                    rows={12}
+                    value={instanceEnvCustomStr}
+                    onChange={(e) => setInstanceEnvCustomStr(e.target.value)}
+                    placeholder="REDIS_PASSWORD=minha_senha&#10;WORKER_QUEUE=high-priority&#10;PORT=8080"
+                    className="w-full p-3.5 text-xs bg-slate-900 text-emerald-400 font-mono rounded-xl border border-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 leading-relaxed resize-none selection:bg-purple-600 selection:text-white"
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    Ao salvar, a instância <strong className="text-slate-800 font-mono">{instanceEnvModalContainer}</strong> e
+                    todas as suas réplicas serão recriadas para aplicar estas variáveis de ambiente.
+                  </p>
+                </div>
+              ) : (
+                /* VISÃO MESCLADA (STACK + INSTÂNCIA) */
                 <div className="space-y-3">
                   <div className="p-3 bg-purple-50/60 border border-purple-100 rounded-xl text-xs text-purple-900 flex items-start gap-2">
                     <Info className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
                     <p className="leading-relaxed">
-                      Esta réplica herda as variáveis globais da stack. Chaves personalizadas nesta instância substituem
-                      as globais com o mesmo nome.
+                      Esta instância herda as variáveis globais da stack. Chaves personalizadas nesta instância substituem
+                      as globais com o mesmo nome e são aplicadas a todas as réplicas.
                     </p>
                   </div>
 
                   <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
                     <table className="w-full text-left text-xs font-mono">
-                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[10px] font-semibold uppercase">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[10px] font-semibold uppercase font-sans">
                         <tr>
                           <th className="px-3.5 py-2">Variável</th>
                           <th className="px-3.5 py-2">Valor Efetivo</th>
@@ -5994,27 +6300,6 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
                       </tbody>
                     </table>
                   </div>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-slate-700">
-                      Variáveis Exclusivas / Overrides para <span className="font-mono text-purple-700">{instanceEnvModalContainer}</span>:
-                    </label>
-                    <span className="text-[11px] text-slate-400 font-mono">Formato KEY=VALUE</span>
-                  </div>
-
-                  <textarea
-                    rows={10}
-                    value={instanceEnvCustomStr}
-                    onChange={(e) => setInstanceEnvCustomStr(e.target.value)}
-                    placeholder="INSTANCE_ID=2&#10;WORKER_QUEUE=high-priority&#10;PORT=8080"
-                    className="w-full p-3 text-xs bg-slate-900 text-emerald-400 font-mono rounded-xl border border-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 leading-relaxed resize-none selection:bg-purple-600 selection:text-white"
-                  />
-                  <p className="text-[11px] text-slate-500">
-                    Ao salvar, a instância <strong className="text-slate-800 font-mono">{instanceEnvModalContainer}</strong> e
-                    todas as suas réplicas serão recriadas para aplicar estas variáveis de ambiente.
-                  </p>
                 </div>
               )}
             </div>

@@ -215,35 +215,61 @@ export const DatabaseDiagramMER: React.FC<DatabaseDiagramMERProps> = ({
     const newPos: Record<string, TablePosition> = {};
 
     if (viewScope === 'focused' && focusedTableName) {
-      // 1. MODO FOCADO (LAYOUT EM COLUNAS BALANCEADAS)
-      const centerX = 580;
+      // 1. MODO FOCADO (DISTRIBUIÇÃO SIMÉTRICA E BALANCEADA AO REDOR DO FOCO)
+      const otherTables = activeTables.filter((t) => t.name !== focusedTableName);
+      const totalOthers = otherTables.length;
+
+      let leftList: DatabaseTable[] = [];
+      let rightList: DatabaseTable[] = [];
+
+      if (outgoingTables.length > 0 && incomingTables.length > 0) {
+        leftList = incomingTables;
+        rightList = outgoingTables;
+      } else {
+        // Se as relações estão quase todas de um lado (ex: User tem 14 tabelas dependentes e 0 pais)
+        // Divide simetricamente entre a esquerda e a direita para equilibrar a tela e evitar tabelas fora da visão
+        const half = Math.ceil(totalOthers / 2);
+        leftList = otherTables.slice(0, half);
+        rightList = otherTables.slice(half);
+      }
+
+      const leftCols = leftList.length > 3 ? 2 : 1;
+      const rightCols = rightList.length > 3 ? 2 : 1;
+
+      const centerX = leftCols === 2 ? 620 : 360;
       const centerY = 160;
       newPos[focusedTableName] = { x: centerX, y: centerY };
 
-      const leftTables = incomingTables;
-      const rightTables = outgoingTables;
+      // Distribui tabelas à esquerda
+      const leftPerCol = Math.ceil(leftList.length / leftCols);
+      leftList.forEach((tbl, idx) => {
+        const colIdx = Math.floor(idx / leftPerCol);
+        const rowIdx = idx % leftPerCol;
+        const x = colIdx === 0 ? 40 : 310;
+        const y = 40 + rowIdx * 210;
+        newPos[tbl.name] = { x, y };
+      });
 
-      if (leftTables.length <= 4) {
-        leftTables.forEach((tbl, idx) => {
-          newPos[tbl.name] = { x: 80, y: 60 + idx * 240 };
-        });
-      } else {
-        const half = Math.ceil(leftTables.length / 2);
-        leftTables.slice(0, half).forEach((tbl, idx) => {
-          newPos[tbl.name] = { x: 40, y: 60 + idx * 240 };
-        });
-        leftTables.slice(half).forEach((tbl, idx) => {
-          newPos[tbl.name] = { x: 300, y: 60 + idx * 240 };
-        });
-      }
-
-      if (rightTables.length > 0) {
-        rightTables.forEach((tbl, idx) => {
-          newPos[tbl.name] = { x: centerX + 360, y: 60 + idx * 240 };
-        });
-      }
+      // Distribui tabelas à direita
+      const rightPerCol = Math.ceil(rightList.length / rightCols);
+      rightList.forEach((tbl, idx) => {
+        const colIdx = Math.floor(idx / rightPerCol);
+        const rowIdx = idx % rightPerCol;
+        const x = centerX + CARD_WIDTH + 80 + colIdx * (CARD_WIDTH + 30);
+        const y = 40 + rowIdx * 210;
+        newPos[tbl.name] = { x, y };
+      });
 
       setPositions(newPos);
+
+      // Calcula dimensões reais para ajuste automático de enquadramento
+      const allX = Object.values(newPos).map((p) => p.x);
+      const allY = Object.values(newPos).map((p) => p.y);
+      const maxX = Math.max(...allX) + CARD_WIDTH + 60;
+      const maxY = Math.max(...allY) + 240;
+
+      const fitZoom = Math.min(0.85, Math.max(0.55, 1200 / maxX, 650 / maxY));
+      setZoom(fitZoom);
       setPan({ x: 20, y: 20 });
     } else {
       // 2. MODO GERAL: Grid Espaçado e Limpo
@@ -348,7 +374,7 @@ export const DatabaseDiagramMER: React.FC<DatabaseDiagramMERProps> = ({
 
   return (
     <div
-      className={`relative w-full h-[640px] bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden select-none shadow-xs ${
+      className={`relative w-full h-[calc(100vh-14rem)] min-h-[640px] bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden select-none shadow-xs ${
         isPanningCanvas ? 'cursor-grabbing' : 'cursor-default'
       }`}
       onMouseDown={handleCanvasMouseDown}
@@ -486,7 +512,7 @@ export const DatabaseDiagramMER: React.FC<DatabaseDiagramMERProps> = ({
 
       {/* SVG Canvas de Conexões de Relações Ancoradas nos Campos */}
       <svg
-        className="absolute inset-0 w-full h-full pointer-events-none z-10"
+        className="absolute inset-0 w-[5000px] h-[5000px] pointer-events-none z-10 overflow-visible"
         style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           transformOrigin: 'top left',

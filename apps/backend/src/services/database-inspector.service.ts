@@ -9,6 +9,8 @@ import type {
   DatabaseTable,
   DatabaseColumn,
   DatabaseForeignKey,
+  DatabaseIndex,
+  DatabaseDependency,
   RedisKeyInfo,
   RedisServerMetrics,
 } from '@stackorbit/shared';
@@ -369,7 +371,9 @@ export class DatabaseInspectorService {
               kcu.table_name,
               kcu.column_name,
               ccu.table_name AS foreign_table_name,
-              ccu.column_name AS foreign_column_name
+              ccu.column_name AS foreign_column_name,
+              rc.update_rule AS on_update,
+              rc.delete_rule AS on_delete
             FROM information_schema.table_constraints AS tc
             JOIN information_schema.key_column_usage AS kcu
               ON tc.constraint_name = kcu.constraint_name
@@ -377,8 +381,34 @@ export class DatabaseInspectorService {
             JOIN information_schema.constraint_column_usage AS ccu
               ON ccu.constraint_name = tc.constraint_name
               AND ccu.table_schema = tc.table_schema
+            LEFT JOIN information_schema.referential_constraints AS rc
+              ON rc.constraint_name = tc.constraint_name
+              AND rc.constraint_schema = tc.table_schema
             WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
           ) f
+        ),
+        'indexes', (
+          SELECT COALESCE(json_agg(idx), '[]'::json)
+          FROM (
+            SELECT
+              i.relname AS name,
+              t.relname AS table_name,
+              ix.indisunique AS is_unique,
+              ix.indisprimary AS is_primary,
+              am.amname AS type,
+              ARRAY(
+                SELECT pg_get_indexdef(ix.indexrelid, k + 1, true)
+                FROM generate_subscripts(ix.indkey, 1) as k
+                ORDER BY k
+              ) AS columns
+            FROM pg_index ix
+            JOIN pg_class t ON t.oid = ix.indrelid
+            JOIN pg_class i ON i.oid = ix.indexrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            JOIN pg_am am ON am.oid = i.relam
+            WHERE n.nspname = 'public'
+            ORDER BY t.relname, i.relname
+          ) idx
         )
       );
     `;
@@ -433,6 +463,7 @@ export class DatabaseInspectorService {
     const columnsRows: any[] = data?.columns || [];
     const pkRows: any[] = data?.pks || [];
     const fkRows: any[] = data?.fks || [];
+    const indexRows: any[] = data?.indexes || [];
     const rowEstimates: Record<string, number> = data?.row_estimates || {};
 
     // Mapeia PKs e FKs
@@ -443,13 +474,42 @@ export class DatabaseInspectorService {
     });
 
     const fkMap: Record<string, DatabaseForeignKey[]> = {};
+    const depMap: Record<string, DatabaseDependency[]> = {};
     fkRows.forEach((r: any) => {
+      // FK de saída da tabela
       if (!fkMap[r.table_name]) fkMap[r.table_name] = [];
       fkMap[r.table_name].push({
         column: r.column_name,
         referencedTable: r.foreign_table_name,
         referencedColumn: r.foreign_column_name,
         constraintName: r.constraint_name,
+        onDelete: r.on_delete,
+        onUpdate: r.on_update,
+      });
+
+      // Dependência / Relação reversa (quem referencia foreign_table_name)
+      if (!depMap[r.foreign_table_name]) depMap[r.foreign_table_name] = [];
+      depMap[r.foreign_table_name].push({
+        fromTable: r.table_name,
+        fromColumn: r.column_name,
+        toColumn: r.foreign_column_name,
+        constraintName: r.constraint_name,
+        onDelete: r.on_delete,
+        onUpdate: r.on_update,
+      });
+    });
+
+    // Mapeia Índices
+    const indexMap: Record<string, DatabaseIndex[]> = {};
+    indexRows.forEach((idx: any) => {
+      if (!indexMap[idx.table_name]) indexMap[idx.table_name] = [];
+      indexMap[idx.table_name].push({
+        name: idx.name,
+        tableName: idx.table_name,
+        columns: Array.isArray(idx.columns) ? idx.columns : [idx.columns],
+        isUnique: !!idx.is_unique,
+        isPrimary: !!idx.is_primary,
+        type: idx.type || 'btree',
       });
     });
 
@@ -457,6 +517,8 @@ export class DatabaseInspectorService {
     for (const tableName of rawTables) {
       const pks = pkMap[tableName] || [];
       const fks = fkMap[tableName] || [];
+      const deps = depMap[tableName] || [];
+      const indexes = indexMap[tableName] || [];
       const fkCols = new Set(fks.map((f) => f.column));
 
       const tableCols = columnsRows.filter((c: any) => c.table_name === tableName);
@@ -476,6 +538,8 @@ export class DatabaseInspectorService {
         columns,
         primaryKeys: pks,
         foreignKeys: fks,
+        dependencies: deps,
+        indexes,
       });
     }
 
@@ -614,7 +678,7 @@ export class DatabaseInspectorService {
   }
 
   /**
-   * Retorna os dados tabulares paginados de uma tabela
+   * Retorna os dados tabulares paginados de uma tabela de forma ultra-otimizada
    */
   public async getTableData(
     serviceId: string,
@@ -631,40 +695,141 @@ export class DatabaseInspectorService {
     }
 
     if (conn.type === 'postgres') {
-      const countRes = await this.queryPostgres(
-        conn,
-        `SELECT count(*) as total FROM "${tableName}";`,
-        databaseName
-      );
+      // Otimização de Performance: Uma única query SQL estruturada (elimina roundtrips extras)
+      const combinedSql = `
+        SELECT json_build_object(
+          'total', (SELECT count(*) FROM "${tableName}"),
+          'rows', COALESCE((SELECT json_agg(t) FROM (SELECT * FROM "${tableName}" LIMIT ${limit} OFFSET ${offset}) t), '[]'::json)
+        ) as payload;
+      `;
+      try {
+        const res = await this.queryPostgres(conn, combinedSql, databaseName);
+        const rawPayload = res[0]?.payload || res[0]?.json_build_object;
+        if (rawPayload) {
+          const payload = typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
+          const rows = payload.rows || [];
+          const totalCount = parseInt(payload.total ?? rows.length, 10);
+          return { rows, totalCount, page, limit };
+        }
+      } catch {
+        // Fallback paralelo em caso de erro na estruturação JSON
+      }
+
+      const [countRes, rows] = await Promise.all([
+        this.queryPostgres(conn, `SELECT count(*) as total FROM "${tableName}";`, databaseName),
+        this.queryPostgres(conn, `SELECT * FROM "${tableName}" LIMIT ${limit} OFFSET ${offset};`, databaseName),
+      ]);
       const totalCount = parseInt(countRes[0]?.total || '0', 10);
-
-      const rows = await this.queryPostgres(
-        conn,
-        `SELECT * FROM "${tableName}" LIMIT ${limit} OFFSET ${offset};`,
-        databaseName
-      );
-
       return { rows, totalCount, page, limit };
     }
 
     if (conn.type === 'mysql' || conn.type === 'mariadb') {
-      const countRows = await this.queryMySQL(
-        conn,
-        `SELECT count(*) as total FROM \`${tableName}\`;`,
-        databaseName
-      );
+      const [countRows, rows] = await Promise.all([
+        this.queryMySQL(conn, `SELECT count(*) as total FROM \`${tableName}\`;`, databaseName),
+        this.queryMySQL(conn, `SELECT * FROM \`${tableName}\` LIMIT ${limit} OFFSET ${offset};`, databaseName),
+      ]);
       const totalCount = parseInt(countRows[0]?.total || '0', 10);
-
-      const rows = await this.queryMySQL(
-        conn,
-        `SELECT * FROM \`${tableName}\` LIMIT ${limit} OFFSET ${offset};`,
-        databaseName
-      );
-
       return { rows, totalCount, page, limit };
     }
 
     throw new Error('Tipo de banco não suportado para consulta de dados.');
+  }
+
+  /**
+   * Aplica alterações inline em linhas da tabela (Auto-commit ou Transação com COMMIT/ROLLBACK)
+   */
+  public async updateTableData(
+    serviceId: string,
+    tableName: string,
+    updates: Array<{ primaryKey: Record<string, any>; changes: Record<string, any> }>,
+    mode: 'auto' | 'transaction' | 'commit' = 'auto',
+    databaseName?: string
+  ): Promise<{ success: boolean; affectedRows: number; durationMs: number }> {
+    const start = Date.now();
+    const conn = await this.resolveConnectionInfo(serviceId);
+
+    if (!/^[a-zA-Z0-9_.-]+$/.test(tableName)) {
+      throw new Error('Nome de tabela inválido.');
+    }
+
+    if (!Array.isArray(updates) || updates.length === 0) {
+      throw new Error('Nenhuma alteração informada.');
+    }
+
+    // Helper de escape seguro de valores SQL
+    const formatSqlValue = (val: any): string => {
+      if (val === null || val === undefined) return 'NULL';
+      if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
+      if (typeof val === 'number') return isFinite(val) ? String(val) : 'NULL';
+      if (typeof val === 'object') {
+        const jsonStr = JSON.stringify(val).replace(/'/g, "''");
+        return `'${jsonStr}'`;
+      }
+      return `'${String(val).replace(/'/g, "''")}'`;
+    };
+
+    const statements: string[] = [];
+
+    for (const item of updates) {
+      const { primaryKey, changes } = item;
+      if (!primaryKey || Object.keys(primaryKey).length === 0) {
+        throw new Error('Chave primária obrigatória para localizar o registro a alterar.');
+      }
+      if (!changes || Object.keys(changes).length === 0) {
+        continue;
+      }
+
+      // Validação de nomes de colunas
+      for (const col of [...Object.keys(changes), ...Object.keys(primaryKey)]) {
+        if (!/^[a-zA-Z0-9_.-]+$/.test(col)) {
+          throw new Error(`Nome de coluna inválido: ${col}`);
+        }
+      }
+
+      if (conn.type === 'postgres') {
+        const setClauses = Object.entries(changes)
+          .map(([col, val]) => `"${col}" = ${formatSqlValue(val)}`)
+          .join(', ');
+        const whereClauses = Object.entries(primaryKey)
+          .map(([col, val]) => `"${col}" = ${formatSqlValue(val)}`)
+          .join(' AND ');
+        statements.push(`UPDATE "${tableName}" SET ${setClauses} WHERE ${whereClauses};`);
+      } else if (conn.type === 'mysql' || conn.type === 'mariadb') {
+        const setClauses = Object.entries(changes)
+          .map(([col, val]) => `\`${col}\` = ${formatSqlValue(val)}`)
+          .join(', ');
+        const whereClauses = Object.entries(primaryKey)
+          .map(([col, val]) => `\`${col}\` = ${formatSqlValue(val)}`)
+          .join(' AND ');
+        statements.push(`UPDATE \`${tableName}\` SET ${setClauses} WHERE ${whereClauses};`);
+      }
+    }
+
+    if (statements.length === 0) {
+      return { success: true, affectedRows: 0, durationMs: Date.now() - start };
+    }
+
+    const isTransaction = mode === 'transaction' || mode === 'commit';
+
+    if (conn.type === 'postgres') {
+      const fullSql = isTransaction
+        ? `BEGIN;\n${statements.join('\n')}\nCOMMIT;`
+        : statements.join('\n');
+      await this.queryPostgres(conn, fullSql, databaseName);
+    } else if (conn.type === 'mysql' || conn.type === 'mariadb') {
+      const fullSql = isTransaction
+        ? `START TRANSACTION;\n${statements.join('\n')}\nCOMMIT;`
+        : statements.join('\n');
+      await this.queryMySQL(conn, fullSql, databaseName);
+    } else {
+      throw new Error('Banco de dados não suporta operações de atualização direta.');
+    }
+
+    return {
+      success: true,
+      affectedRows: statements.length,
+      durationMs: Date.now() - start,
+    };
   }
 
   /**

@@ -94,6 +94,27 @@ router.get('/:id/table-data', requireAuth, async (req: AuthenticatedRequest, res
   }
 });
 
+// 3.1. Aplicar alterações nos dados tabulares (Edição inline no Grid / Commit de Transações)
+router.post('/:id/table-data/update', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const { id } = req.params;
+  const { table, db, updates, mode } = req.body;
+
+  if (!table || typeof table !== 'string') {
+    return res.status(400).json({ error: 'Parâmetro "table" é obrigatório.' });
+  }
+
+  if (!Array.isArray(updates) || updates.length === 0) {
+    return res.status(400).json({ error: 'Nenhuma alteração enviada no campo "updates".' });
+  }
+
+  try {
+    const result = await databaseInspectorService.updateTableData(id, table, updates, mode || 'auto', db);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Erro ao salvar alterações no banco de dados.' });
+  }
+});
+
 // 4. Executar consulta SQL no Console SQL
 router.post('/:id/query', requireAuth, async (req: AuthenticatedRequest, res) => {
   const { id } = req.params;

@@ -189,6 +189,26 @@ export interface DatabaseForeignKey {
   referencedTable: string;
   referencedColumn: string;
   constraintName?: string;
+  onDelete?: string;
+  onUpdate?: string;
+}
+
+export interface DatabaseIndex {
+  name: string;
+  tableName: string;
+  columns: string[];
+  isUnique: boolean;
+  isPrimary: boolean;
+  type?: string;
+}
+
+export interface DatabaseDependency {
+  fromTable: string;
+  fromColumn: string;
+  toColumn: string;
+  constraintName?: string;
+  onDelete?: string;
+  onUpdate?: string;
 }
 
 export interface DatabaseTable {
@@ -199,6 +219,8 @@ export interface DatabaseTable {
   columns: DatabaseColumn[];
   primaryKeys: string[];
   foreignKeys: DatabaseForeignKey[];
+  indexes?: DatabaseIndex[];
+  dependencies?: DatabaseDependency[];
 }
 
 export interface DatabaseCatalog {
